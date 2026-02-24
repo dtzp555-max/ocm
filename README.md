@@ -1,12 +1,162 @@
-# OpenClaw Manager
+# OpenClaw Manager (OCM)
 
-> 🦀 A zero-dependency local web UI for managing [OpenClaw](https://github.com/OpenClaw-AI/openclaw) AI agents
->
-> 零依赖本地 Web 管理界面，告别手动编辑配置文件
+> A zero-dependency, single-file web UI for managing [OpenClaw](https://github.com/anthropics/openclaw) AI agents locally.
+
+[中文说明](#中文说明)
 
 ---
 
-[中文](#中文说明) | [English](#english)
+## What is this?
+
+OpenClaw Manager is a lightweight local web dashboard that lets you visually manage your OpenClaw AI agents, models, auth, cron jobs, and more — without editing JSON files by hand.
+
+Everything ships as **a single `.js` file** with zero npm dependencies. Just need Node.js 18+.
+
+## Screenshots
+
+### Landing Page
+Choose between Sub-agent mode and Multi-agent mode. Switch language (EN / 中文) anytime.
+
+![Landing Page](screenshots/landing.png)
+
+### Agent Management
+View all agents (main + sub-agents) at a glance. Each card shows model, group binding, and workspace path. Switch models inline, browse files, or delete with auto-backup.
+
+![Agents](screenshots/agents.png)
+
+### New Subagent Wizard
+4-step guided wizard to create a sub-agent: basic info → model → personality & memory → confirm. Fully bilingual.
+
+![New Subagent](screenshots/subagents.png)
+
+### Model Selector
+Rich model dropdown grouped by provider — GitHub Copilot, Anthropic, OpenAI, Google, DeepSeek, Kimi, Groq, Mistral, Together, plus your custom models.
+
+![Models](screenshots/models.png)
+
+### Actions Menu
+Quick access to gateway operations, backups, health checks, and directory management. Use **"Switch OpenClaw Dir"** to point OCM to your OpenClaw config on first setup.
+
+![Actions](screenshots/actions.png)
+
+### Cron Job Management
+View, add, enable/disable, and manually trigger openclaw-related cron tasks. Integrates with NAS backup schedules.
+
+![Cron](screenshots/cron.png)
+
+### Built-in CLI Terminal
+Run any openclaw command with real-time streaming output. The terminal panel sits at the bottom of the page and expands on demand.
+
+![CLI Overview](screenshots/cli1.png)
+
+Preset command menu with built-in commands and your personal favorites — one click to run.
+
+![CLI Presets](screenshots/cli3.png)
+
+Command output streams in real-time. Star frequently used commands for quick access, or use the Manage button to organize favorites.
+
+![CLI Detail](screenshots/cli2.png)
+
+## Features
+
+- **Agent Management** — Create sub-agents (with wizard), switch models inline, browse & edit workspace files, delete with auto-backup
+- **Model Selection** — Change global primary model, edit fallback chain
+- **Auth Guide** — Step-by-step instructions for configuring each provider (Anthropic, OpenAI, DeepSeek, Google, GitHub Copilot, etc.)
+- **Token Usage Stats** — Parse `gateway.log` for token usage, view cost breakdown by model and day
+- **Cron Job Management** — View, add, enable/disable, and trigger openclaw-related cron tasks
+- **Workspace File Browser** — Browse all agent workspace files, read-only by default, editable on demand
+- **Backup & Rollback** — Auto-backup before every write, one-click restore from any snapshot
+- **NAS Backup** — SFTP/rsync backup to NAS with legacy SSH cipher compatibility
+- **Built-in CLI Terminal** — Run openclaw commands with real-time streaming output, presets, tab completion
+- **Health Badge** — Auto-run `openclaw doctor` and show warnings in the header
+- **Bilingual UI** — English / 中文, switchable at runtime
+- **Cross-platform** — macOS / Linux / Windows
+
+## Requirements
+
+- Node.js >= 18 ([download](https://nodejs.org/))
+- A working [OpenClaw](https://github.com/anthropics/openclaw) installation
+
+## Quick Start
+
+```bash
+git clone https://github.com/dtzp555-max/ocm.git
+cd ocm
+# No npm install needed
+
+# macOS / Linux
+bash start.sh
+
+# Windows
+start.bat
+```
+
+Then open http://localhost:3333 in your browser.
+
+### First Run
+
+On first launch, the start script auto-detects `~/.openclaw` and creates a `manager-config.json` for you. If your OpenClaw config is elsewhere, use **Actions → Switch OpenClaw Dir** in the UI to point to the correct path.
+
+### macOS Double-click
+
+Double-click `OpenClaw Manager.app` in Finder. On first launch, you may need to allow it in System Settings → Privacy & Security.
+
+### Custom Port
+
+```bash
+bash start.sh --port 8080
+```
+
+## Configuration
+
+The app locates your OpenClaw config directory in this order:
+
+| Priority | Method |
+|----------|--------|
+| 1 | `--dir` CLI argument |
+| 2 | `OPENCLAW_DIR` environment variable |
+| 3 | `manager-config.json` in the same folder |
+| 4 | `~/.openclaw` (default) |
+
+You can also create `manager-config.json` manually:
+
+```json
+{ "dir": "~/.openclaw" }
+```
+
+`~` expands to your home directory on all platforms. `manager-config.json` is in `.gitignore` and won't be committed.
+
+## Optional: Shell Alias
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+alias ocm="bash ~/path/to/ocm/start.sh"
+```
+
+## Project Structure
+
+```
+ocm/
+├── openclaw-manager.js          ← The entire app (server + frontend, single file)
+├── start.sh                     ← macOS/Linux start script (auto-detect Node, port, config)
+├── start.bat                    ← Windows start script
+├── OpenClaw Manager.app/        ← macOS Finder double-click launcher
+├── screenshots/                 ← README screenshots
+├── manager-config.json          ← Local config (gitignored)
+├── package.json
+├── DEVLOG.md                    ← Development log
+└── README.md
+```
+
+## Tech Stack
+
+- **Runtime**: Node.js built-in modules only (`http`, `fs`, `path`, `os`, `child_process`)
+- **Frontend**: Vanilla HTML/CSS/JS embedded in a template literal — no build step, no framework
+- **Architecture**: Single-file, zero-dependency, runs anywhere Node.js runs
+
+## License
+
+MIT
 
 ---
 
@@ -14,36 +164,54 @@
 
 ### 简介
 
-OpenClaw Manager 是一个运行在本地的轻量级 Web 管理界面，帮助你可视化管理 OpenClaw 的 AI 智能体（Agent）、模型配置和认证信息。**无需安装任何 npm 依赖**，只需要 Node.js 18+。
+OpenClaw Manager 是一个零依赖的本地 Web 管理界面，用于可视化管理 [OpenClaw](https://github.com/anthropics/openclaw) AI 智能体。所有代码合并在一个 `.js` 文件中，只需要 Node.js 18+，不需要 `npm install`。
 
-### 功能
+### 界面预览
 
-- 🤖 **Agent 管理** — 新建子智能体（含向导）、内联切换模型、查看工作区文件、删除（自动备份）
-- 🧠 **模型管理** — 修改全局主模型、编辑 Fallback 链、添加 / 删除自定义模型
-- 🔑 **认证管理** — 支持 Anthropic、OpenAI、DeepSeek、Kimi、Groq、Mistral、Together、Perplexity、Google（OAuth）、GitHub Copilot（Device Flow）
-- 🔄 **备份 & 回滚** — 每次写入前自动备份 `openclaw.json`，支持一键回滚
-- 📋 **网关操作** — 重启 Gateway、实时查看日志
-- 🖥️ **跨平台** — macOS / Linux / Windows
+#### 模式选择
+![Landing](screenshots/landing.png)
 
-### 系统要求
+#### Agent 管理 & 新建向导
+![Agents](screenshots/agents.png)
+![New Subagent](screenshots/subagents.png)
 
-- Node.js **>= 18**（[下载](https://nodejs.org/)）
-- 已安装并配置好的 [OpenClaw](https://github.com/OpenClaw-AI/openclaw)
+#### 模型选择 & 操作菜单
+首次安装后，通过 **Actions → Switch OpenClaw Dir** 指向你的 OpenClaw 配置目录即可开始使用。
 
-### 安装
+![Models](screenshots/models.png)
+![Actions](screenshots/actions.png)
+
+#### Cron 定时任务
+![Cron](screenshots/cron.png)
+
+#### 内置 CLI 终端
+底部终端面板，支持实时流式输出、预设命令、收藏夹、Tab 补全。
+
+![CLI](screenshots/cli1.png)
+![CLI Presets](screenshots/cli3.png)
+![CLI Detail](screenshots/cli2.png)
+
+### 功能一览
+
+- **Agent 管理** — 新建子智能体（含向导）、内联切换模型、查看/编辑工作区文件、删除（自动备份）
+- **模型选择** — 修改全局主模型、编辑 Fallback 链
+- **认证引导** — 各 Provider 分步操作指引 + 一键复制 CLI 命令
+- **Token 用量统计** — 解析网关日志，按模型/天汇总 Token 和费用
+- **Cron 任务管理** — 查看、添加、启用/禁用、手动触发 openclaw 相关定时任务
+- **Workspace 文件浏览器** — 查看所有工作区文件，默认只读，可切换编辑
+- **备份 & 回滚** — 每次写入前自动备份，一键回滚
+- **NAS 备份** — SFTP/rsync 远程备份，兼容老设备 SSH 加密
+- **内置 CLI 终端** — 实时流式输出、预设命令、Tab 补全
+- **健康检查** — 自动运行 `openclaw doctor`，Header 显示状态徽章
+- **中英双语** — 运行时随时切换
+- **跨平台** — macOS / Linux / Windows
+
+### 快速开始
 
 ```bash
-git clone https://github.com/你的用户名/openclaw-manager.git
-cd openclaw-manager
-```
+git clone https://github.com/dtzp555-max/ocm.git
+cd ocm
 
-不需要 `npm install`，直接启动即可。
-
-### 启动方式
-
-#### 方式一：脚本启动（推荐）
-
-```bash
 # macOS / Linux
 bash start.sh
 
@@ -51,153 +219,32 @@ bash start.sh
 start.bat
 ```
 
-#### 方式二：macOS 双击启动
+访问 http://localhost:3333
 
-在 Finder 中双击 `openclaw-manager.command`（首次可能需要在系统设置 → 隐私与安全 中允许）。
+### 首次运行
 
-#### 方式三：npm
-
-```bash
-npm start
-```
-
-#### 方式四：直接运行
-
-```bash
-node openclaw-manager.js
-```
-
-启动后访问：`http://localhost:3333`
+启动脚本会自动检测 `~/.openclaw` 目录并创建 `manager-config.json`。如果你的 OpenClaw 配置在其他位置，进入界面后点击 **Actions → Switch OpenClaw Dir** 切换即可。
 
 ### 指定 OpenClaw 目录
 
-程序按以下优先级查找 `openclaw.json`：
+程序按以下优先级查找配置：
 
-| 优先级 | 方式 |
-|--------|------|
-| 1 | `--dir` 命令行参数 |
-| 2 | `OPENCLAW_DIR` 环境变量 |
-| 3 | 同目录下的 `manager-config.json` |
-| 4 | `~/.openclaw`（默认） |
+1. `--dir` 命令行参数
+2. `OPENCLAW_DIR` 环境变量
+3. 同目录下的 `manager-config.json`
+4. `~/.openclaw`（默认）
 
-**推荐：** 在项目目录下新建 `manager-config.json`，之后无需每次带参数：
+也可以手动创建 `manager-config.json`：
 
 ```json
 { "dir": "~/.openclaw" }
 ```
 
-`~` 在所有平台上会自动展开为当前用户主目录，无需手动填写完整路径。也可以写绝对路径：
+`~` 在所有平台自动展开为用户主目录。
 
-| 系统 | 示例 |
-|------|------|
-| macOS / Linux | `{ "dir": "/Users/yourname/.openclaw" }` |
-| Windows（正斜杠）| `{ "dir": "C:/Users/yourname/.openclaw" }` |
-| Windows（反斜杠）| `{ "dir": "C:\\Users\\yourname\\.openclaw" }` |
-
-或者直接指定：
+### Shell 别名（可选）
 
 ```bash
-# macOS / Linux
-bash start.sh --dir ~/.openclaw
-
-# Windows
-start.bat --dir C:/Users/yourname/.openclaw
+# 加到 ~/.zshrc 或 ~/.bashrc
+alias ocm="bash ~/path/to/ocm/start.sh"
 ```
-
-`manager-config.json` 已加入 `.gitignore`，不会被提交。
-
-### 关于 Shell alias（可选）
-
-如果想在终端随时一个命令启动，在 `~/.zshrc` 或 `~/.bashrc` 里加一行：
-
-```bash
-alias ocm="bash ~/openclaw-manager/start.sh"
-```
-
-然后 `source ~/.zshrc`，之后直接敲 `ocm` 即可。
-
----
-
-## English
-
-### What is this?
-
-OpenClaw Manager is a lightweight, zero-dependency local web UI for [OpenClaw](https://github.com/OpenClaw-AI/openclaw). It lets you visually manage AI agents, model configurations, and auth profiles without editing JSON files by hand.
-
-**No `npm install` needed** — just Node.js 18+.
-
-### Features
-
-- 🤖 **Agent management** — Create subagents (with wizard), switch models inline, browse workspace files, delete with auto-backup
-- 🧠 **Model management** — Edit global primary model, manage fallback chain, add/remove custom models
-- 🔑 **Auth management** — Anthropic, OpenAI, DeepSeek, Kimi (Moonshot), Groq, Mistral, Together, Perplexity, Google (OAuth), GitHub Copilot (Device Flow)
-- 🔄 **Backup & rollback** — Auto-backup `openclaw.json` before every write, one-click restore
-- 📋 **Gateway operations** — Restart gateway, tail logs in real time
-- 🖥️ **Cross-platform** — macOS / Linux / Windows
-
-### Requirements
-
-- Node.js **>= 18** ([download](https://nodejs.org/))
-- A working [OpenClaw](https://github.com/OpenClaw-AI/openclaw) installation
-
-### Install
-
-```bash
-git clone https://github.com/your-username/openclaw-manager.git
-cd openclaw-manager
-# No npm install needed
-```
-
-### Start
-
-```bash
-# macOS / Linux
-bash start.sh
-
-# Windows
-start.bat
-
-# macOS: double-click openclaw-manager.command in Finder
-
-# Or directly
-node openclaw-manager.js
-```
-
-Then open `http://localhost:3333` in your browser.
-
-### Directory configuration
-
-The app resolves the OpenClaw config directory in this order:
-
-1. `--dir` CLI argument
-2. `OPENCLAW_DIR` environment variable
-3. `manager-config.json` in the same folder as the script
-4. `~/.openclaw` (default)
-
-**Recommended:** create `manager-config.json` next to the script so you never need to pass flags:
-
-```json
-{ "dir": "/home/yourname/.openclaw" }
-```
-
-`manager-config.json` is in `.gitignore` and will not be committed.
-
-### Optional: shell alias
-
-```bash
-# Add to ~/.zshrc or ~/.bashrc
-alias ocm="bash ~/openclaw-manager/start.sh"
-```
-
-### Custom port
-
-```bash
-bash start.sh --port 8080
-node openclaw-manager.js --port 8080
-```
-
----
-
-## License
-
-MIT

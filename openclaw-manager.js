@@ -1649,54 +1649,54 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
   <div class="m-hdr"><h3 data-i18n="wiz.title">新建 Subagent</h3><button class="m-close" onclick="closeModal('createModal')">✕</button></div>
   <div class="m-body">
     <div class="steps">
-      <div class="step active" id="si1">1 基本信息</div>
-      <div class="step" id="si2">2 模型</div>
-      <div class="step" id="si3">3 性格&记忆</div>
-      <div class="step" id="si4">4 确认</div>
+      <div class="step active" id="si1" data-i18n="wiz.s1">1 基本信息</div>
+      <div class="step" id="si2" data-i18n="wiz.s2">2 模型</div>
+      <div class="step" id="si3" data-i18n="wiz.s3">3 性格&记忆</div>
+      <div class="step" id="si4" data-i18n="wiz.s4">4 确认</div>
     </div>
     <div class="step-page active" id="sp1">
       <div class="form-group">
-        <label>Telegram 群组 ID</label>
+        <label data-i18n="wiz.groupId">Telegram 群组 ID</label>
         <input id="f-gid" placeholder="-100XXXXXXXXXX" oninput="autoFillId()">
-        <span class="hint-text">💡 在群内发一条消息，在网关终端日志里找 peer.id（负数）</span>
+        <span class="hint-text" data-i18n="wiz.groupHint">💡 在群内发一条消息，在网关终端日志里找 peer.id（负数）</span>
         <span class="field-err" id="e-gid"></span>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Agent ID <span style="color:var(--muted);font-weight:400">（纯英文）</span></label>
-          <input id="f-aid" placeholder="my_bot" oninput="validateId()">
+          <label><span data-i18n="wiz.agentId">Agent ID</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.agentIdHint">（纯英文）</span></label>
+          <input id="f-aid" data-i18n-placeholder="wiz.agentIdPh" placeholder="my_bot" oninput="validateId()">
           <span class="field-err" id="e-aid"></span>
         </div>
         <div class="form-group">
-          <label>显示名称</label>
-          <input id="f-name" placeholder="我的助手">
+          <label data-i18n="wiz.displayName">显示名称</label>
+          <input id="f-name" data-i18n-placeholder="wiz.displayNamePh" placeholder="我的助手">
         </div>
       </div>
       <div class="form-group">
-        <label>Workspace 文件夹 <span style="color:var(--muted);font-weight:400">（留空=Agent ID）</span></label>
-        <input id="f-folder" placeholder="自动">
+        <label><span data-i18n="wiz.workspace">Workspace 文件夹</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.workspaceHint">（留空=Agent ID）</span></label>
+        <input id="f-folder" data-i18n-placeholder="wiz.workspacePh" placeholder="自动">
       </div>
       <div class="form-group">
-        <label>Agent 用途描述</label>
-        <textarea id="f-purpose" placeholder="例如：专注于 Linux 和网络运维，帮助群成员快速解决技术故障。"></textarea>
+        <label data-i18n="wiz.purpose">Agent 用途描述</label>
+        <textarea id="f-purpose" data-i18n-placeholder="wiz.purposePh" placeholder="例如：专注于 Linux 和网络运维，帮助群成员快速解决技术故障。"></textarea>
       </div>
     </div>
     <div class="step-page" id="sp2">
       <div class="form-group">
-        <label>选择模型 <span style="color:var(--muted);font-weight:400">（不选则沿用全局默认）</span></label>
+        <label><span data-i18n="wiz.model">选择模型</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.modelHint">（不选则沿用全局默认）</span></label>
         <select id="f-model"></select>
       </div>
       <div id="curDefault" class="notes" style="font-size:12px;margin-top:4px"></div>
     </div>
     <div class="step-page" id="sp3">
       <div class="form-group">
-        <label>性格关键词 <span style="color:var(--muted);font-weight:400">（逗号分隔，选填）</span></label>
-        <input id="f-soul" placeholder="幽默、直接、有条理...">
-        <span class="hint-text">留空则使用默认成长型提示词（推荐）</span>
+        <label><span data-i18n="wiz.soul">性格关键词</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.soulHint">（逗号分隔，选填）</span></label>
+        <input id="f-soul" data-i18n-placeholder="wiz.soulPh" placeholder="幽默、直接、有条理...">
+        <span class="hint-text" data-i18n="wiz.soulTip">留空则使用默认成长型提示词（推荐）</span>
       </div>
       <div class="form-group">
-        <label>初始记忆 <span style="color:var(--muted);font-weight:400">（MEMORY.md，选填）</span></label>
-        <textarea id="f-mem" placeholder="例如：群组主要用中文交流。用户偏好简洁回复。"></textarea>
+        <label><span data-i18n="wiz.memory">初始记忆</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.memoryHint">（MEMORY.md，选填）</span></label>
+        <textarea id="f-mem" data-i18n-placeholder="wiz.memoryPh" placeholder="例如：群组主要用中文交流。用户偏好简洁回复。"></textarea>
       </div>
     </div>
     <div class="step-page" id="sp4">
@@ -1705,47 +1705,47 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
     </div>
   </div>
   <div class="m-foot">
-    <button class="btn-ghost" id="wBack" onclick="wizStep(-1)" style="display:none">← 上一步</button>
-    <button class="btn-secondary" onclick="closeModal('createModal')">取消</button>
-    <button class="btn-primary" id="wNext" onclick="wizStep(1)">下一步 →</button>
+    <button class="btn-ghost" id="wBack" onclick="wizStep(-1)" style="display:none" data-i18n="wiz.back">← 上一步</button>
+    <button class="btn-secondary" onclick="closeModal('createModal')" data-i18n="btn.cancel">取消</button>
+    <button class="btn-primary" id="wNext" onclick="wizStep(1)" data-i18n="wiz.next">下一步 →</button>
   </div>
 </div></div>
 
 <!-- ══ 添加 Channel 绑定 ══════════════════════════════════════ -->
 <div class="backdrop" id="addChannelModal">
 <div class="modal">
-  <div class="m-hdr"><h3>添加 Channel 绑定</h3><button class="m-close" onclick="closeModal('addChannelModal')">✕</button></div>
+  <div class="m-hdr"><h3 data-i18n="ch.title">添加 Channel 绑定</h3><button class="m-close" onclick="closeModal('addChannelModal')">✕</button></div>
   <div class="m-body">
     <div class="form-group">
-      <label>Agent</label>
+      <label data-i18n="ch.agent">Agent</label>
       <select id="ch-agent"></select>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>频道类型</label>
+        <label data-i18n="ch.channelType">频道类型</label>
         <select id="ch-channel">
-          <option value="telegram">Telegram</option>
-          <option value="">任意（不限频道）</option>
+          <option value="telegram" data-i18n="ch.telegram">Telegram</option>
+          <option value="" data-i18n="ch.anyChannel">任意（不限频道）</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Peer 类型</label>
+        <label data-i18n="ch.peerKind">Peer 类型</label>
         <select id="ch-peerKind">
-          <option value="group">群组 (group)</option>
-          <option value="private">私聊 (private)</option>
-          <option value="">任意</option>
+          <option value="group" data-i18n="ch.group">群组 (group)</option>
+          <option value="private" data-i18n="ch.private">私聊 (private)</option>
+          <option value="" data-i18n="ch.any">任意</option>
         </select>
       </div>
     </div>
     <div class="form-group">
-      <label>Peer ID <span style="color:var(--muted);font-weight:400">（群组 ID 或用户 ID）</span></label>
+      <label><span data-i18n="ch.peerId">Peer ID</span> <span style="color:var(--muted);font-weight:400" data-i18n="ch.peerIdHint">（群组 ID 或用户 ID）</span></label>
       <input id="ch-peerId" placeholder="-100XXXXXXXXXX">
-      <span class="hint-text">留空则匹配所有对应类型的 Peer</span>
+      <span class="hint-text" data-i18n="ch.peerIdTip">留空则匹配所有对应类型的 Peer</span>
     </div>
   </div>
   <div class="m-foot">
-    <button class="btn-secondary" onclick="closeModal('addChannelModal')">取消</button>
-    <button class="btn-primary" onclick="submitAddChannel()">添加绑定</button>
+    <button class="btn-secondary" onclick="closeModal('addChannelModal')" data-i18n="btn.cancel">取消</button>
+    <button class="btn-primary" onclick="submitAddChannel()" data-i18n="ch.submit">添加绑定</button>
   </div>
 </div></div>
 
@@ -1965,6 +1965,28 @@ const I18N = {
     'banner.restart':'立即重启','banner.later':'稍后','banner.dismiss':'忽略',
     'floating.restart':'重启 Gateway',
     'wiz.title':'新建 Subagent',
+    'wiz.s1':'1 基本信息','wiz.s2':'2 模型','wiz.s3':'3 性格&记忆','wiz.s4':'4 确认',
+    'wiz.groupId':'Telegram 群组 ID','wiz.groupHint':'💡 在群内发一条消息，在网关终端日志里找 peer.id（负数）',
+    'wiz.agentId':'Agent ID','wiz.agentIdHint':'（纯英文）','wiz.agentIdPh':'my_bot',
+    'wiz.displayName':'显示名称','wiz.displayNamePh':'我的助手',
+    'wiz.workspace':'Workspace 文件夹','wiz.workspaceHint':'（留空=Agent ID）','wiz.workspacePh':'自动',
+    'wiz.purpose':'Agent 用途描述','wiz.purposePh':'例如：专注于 Linux 和网络运维，帮助群成员快速解决技术故障。',
+    'wiz.model':'选择模型','wiz.modelHint':'（不选则沿用全局默认）',
+    'wiz.soul':'性格关键词','wiz.soulHint':'（逗号分隔，选填）','wiz.soulPh':'幽默、直接、有条理...',
+    'wiz.soulTip':'留空则使用默认成长型提示词（推荐）',
+    'wiz.memory':'初始记忆','wiz.memoryHint':'（MEMORY.md，选填）','wiz.memoryPh':'例如：群组主要用中文交流。用户偏好简洁回复。',
+    'wiz.preview':'即将创建：','wiz.group':'群组','wiz.modelLabel':'模型','wiz.globalDefault':'全局默认',
+    'wiz.soulYes':'含性格关键词','wiz.soulDefault':'默认成长型提示词（推荐）',
+    'wiz.autoBackup':'自动备份当前 openclaw.json ✓',
+    'wiz.back':'← 上一步','wiz.next':'下一步 →','wiz.confirm':'✅ 确认创建','wiz.creating':'创建中...',
+    'wiz.created':'✅ 已创建',
+    'wiz.errGroupId':'请填写群组 ID','wiz.errAgentId':'请填写 Agent ID',
+    'wiz.errIdFormat':'只能含英文/数字/_ /-','wiz.errIdReserved':'"main" 是保留 ID','wiz.errIdDup':'该 ID 已存在',
+    'ch.title':'添加 Channel 绑定','ch.agent':'Agent','ch.channelType':'频道类型',
+    'ch.telegram':'Telegram','ch.anyChannel':'任意（不限频道）',
+    'ch.peerKind':'Peer 类型','ch.group':'群组 (group)','ch.private':'私聊 (private)','ch.any':'任意',
+    'ch.peerId':'Peer ID','ch.peerIdHint':'（群组 ID 或用户 ID）','ch.peerIdTip':'留空则匹配所有对应类型的 Peer',
+    'ch.submit':'添加绑定',
     'l.sub':'选择运行模式',
     'cli.open':'⌨️ 终端','cli.title':'⌨️ CLI 终端','cli.clear':'清空','cli.collapse':'▼ 收起',
     'cli.ready':'── 终端就绪，等待命令 ──','cli.cleared':'── 已清空 ──',
@@ -2022,6 +2044,28 @@ const I18N = {
     'banner.restart':'Restart Now','banner.later':'Later','banner.dismiss':'Dismiss',
     'floating.restart':'Restart Gateway',
     'wiz.title':'New Subagent',
+    'wiz.s1':'1 Basic Info','wiz.s2':'2 Model','wiz.s3':'3 Personality & Memory','wiz.s4':'4 Confirm',
+    'wiz.groupId':'Telegram Group ID','wiz.groupHint':'💡 Send a message in the group, find peer.id (negative number) in gateway logs',
+    'wiz.agentId':'Agent ID','wiz.agentIdHint':'(English only)','wiz.agentIdPh':'my_bot',
+    'wiz.displayName':'Display Name','wiz.displayNamePh':'My Assistant',
+    'wiz.workspace':'Workspace Folder','wiz.workspaceHint':'(Leave blank = Agent ID)','wiz.workspacePh':'auto',
+    'wiz.purpose':'Agent Purpose','wiz.purposePh':'e.g. Linux & networking ops, help group members troubleshoot quickly.',
+    'wiz.model':'Select Model','wiz.modelHint':'(Leave blank for global default)',
+    'wiz.soul':'Personality Keywords','wiz.soulHint':'(comma-separated, optional)','wiz.soulPh':'humorous, direct, organized...',
+    'wiz.soulTip':'Leave blank for default growth prompt (recommended)',
+    'wiz.memory':'Initial Memory','wiz.memoryHint':'(MEMORY.md, optional)','wiz.memoryPh':'e.g. Group mainly uses English. Users prefer concise replies.',
+    'wiz.preview':'About to create:','wiz.group':'Group','wiz.modelLabel':'Model','wiz.globalDefault':'Global Default',
+    'wiz.soulYes':'With personality keywords','wiz.soulDefault':'Default growth prompt (recommended)',
+    'wiz.autoBackup':'Auto-backup current openclaw.json ✓',
+    'wiz.back':'← Back','wiz.next':'Next →','wiz.confirm':'✅ Confirm','wiz.creating':'Creating...',
+    'wiz.created':'✅ Created',
+    'wiz.errGroupId':'Please enter Group ID','wiz.errAgentId':'Please enter Agent ID',
+    'wiz.errIdFormat':'Only letters/numbers/_ /- allowed','wiz.errIdReserved':'"main" is a reserved ID','wiz.errIdDup':'This ID already exists',
+    'ch.title':'Add Channel Binding','ch.agent':'Agent','ch.channelType':'Channel Type',
+    'ch.telegram':'Telegram','ch.anyChannel':'Any (no restriction)',
+    'ch.peerKind':'Peer Type','ch.group':'Group','ch.private':'Private','ch.any':'Any',
+    'ch.peerId':'Peer ID','ch.peerIdHint':'(Group ID or User ID)','ch.peerIdTip':'Leave blank to match all peers of this type',
+    'ch.submit':'Add Binding',
     'l.sub':'Select Mode',
     'cli.open':'⌨️ Terminal','cli.title':'⌨️ CLI Terminal','cli.clear':'Clear','cli.collapse':'▼ Collapse',
     'cli.ready':'── Terminal Ready ──','cli.cleared':'── Cleared ──',
@@ -2302,7 +2346,7 @@ function openAddChannel(){
   const sel=document.getElementById('ch-agent');
   sel.innerHTML=''; S.agents.forEach(a=>{ sel.innerHTML+=\`<option value="\${a.id}">\${esc(a.name||a.id)}</option>\`; });
   document.getElementById('ch-peerId').value='';
-  openModal('addChannelModal');
+  openModal('addChannelModal'); applyLang();
 }
 
 async function submitAddChannel(){
@@ -2560,11 +2604,11 @@ function openCreateWizard(){
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('createResult').innerHTML='';
-  buildWizModelSel(); updateWizUI(); openModal('createModal');
+  buildWizModelSel(); updateWizUI(); openModal('createModal'); applyLang();
 }
 function buildWizModelSel(){
   const sel=document.getElementById('f-model');
-  sel.innerHTML=\`<option value="__default__">使用全局默认 (\${S.primaryModel})</option>\`;
+  sel.innerHTML=\`<option value="__default__">\${t('agents.defaultModel')} (\${S.primaryModel})</option>\`;
   S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
     sel.innerHTML+=\`<option value="\${m.id}">\${m.label}</option>\`;
   });
@@ -2584,7 +2628,7 @@ function updateWizUI(){
     document.getElementById('si'+i).className='step'+(i===wizCur?' active':i<wizCur?' done':'');
   }
   document.getElementById('wBack').style.display=wizCur>1?'':'none';
-  document.getElementById('wNext').textContent=wizCur===4?'✅ 确认创建':'下一步 →';
+  document.getElementById('wNext').textContent=wizCur===4?t('wiz.confirm'):t('wiz.next');
 }
 function validateWizStep(step){
   if(step!==1)return true;
@@ -2592,11 +2636,11 @@ function validateWizStep(step){
   const gid=document.getElementById('f-gid').value.trim();
   const aid=document.getElementById('f-aid').value.trim();
   const ge=document.getElementById('e-gid'); const ae=document.getElementById('e-aid');
-  if(!gid){ge.textContent='请填写群组 ID';ok=false;}else ge.textContent='';
-  if(!aid){ae.textContent='请填写 Agent ID';ok=false;}
-  else if(!/^[a-zA-Z0-9_-]+$/.test(aid)){ae.textContent='只能含英文/数字/_ /-';ok=false;}
-  else if(aid.toLowerCase()==='main'){ae.textContent='"main" 是保留 ID';ok=false;}
-  else if(S.agents.find(a=>a.id===aid)){ae.textContent='该 ID 已存在';ok=false;}
+  if(!gid){ge.textContent=t('wiz.errGroupId');ok=false;}else ge.textContent='';
+  if(!aid){ae.textContent=t('wiz.errAgentId');ok=false;}
+  else if(!/^[a-zA-Z0-9_-]+$/.test(aid)){ae.textContent=t('wiz.errIdFormat');ok=false;}
+  else if(aid.toLowerCase()==='main'){ae.textContent=t('wiz.errIdReserved');ok=false;}
+  else if(S.agents.find(a=>a.id===aid)){ae.textContent=t('wiz.errIdDup');ok=false;}
   else ae.textContent='';
   return ok;
 }
@@ -2611,8 +2655,8 @@ function validateId(){
   const v=document.getElementById('f-aid').value;
   const e=document.getElementById('e-aid');
   if(!v){e.textContent='';return;}
-  if(!/^[a-zA-Z0-9_-]+$/.test(v)) e.textContent='只能含英文/数字/_ /-';
-  else if(v.toLowerCase()==='main') e.textContent='"main" 是保留 ID';
+  if(!/^[a-zA-Z0-9_-]+$/.test(v)) e.textContent=t('wiz.errIdFormat');
+  else if(v.toLowerCase()==='main') e.textContent=t('wiz.errIdReserved');
   else e.textContent='';
 }
 function buildPreview(){
@@ -2623,18 +2667,18 @@ function buildPreview(){
   const model=document.getElementById('f-model').value;
   const soul=document.getElementById('f-soul').value.trim();
   document.getElementById('previewBox').innerHTML=\`
-    <strong>即将创建：</strong><br>
+    <strong>\${t('wiz.preview')}</strong><br>
     🤖 Agent: <code>\${aid}</code> (\${esc(name)})<br>
-    📱 群组: <code>\${gid}</code><br>
-    🧠 模型: \${model==='__default__'?'全局默认 ('+S.primaryModel+')':model}<br>
+    📱 \${t('wiz.group')}: <code>\${gid}</code><br>
+    🧠 \${t('wiz.modelLabel')}: \${model==='__default__'?t('wiz.globalDefault')+' ('+S.primaryModel+')':model}<br>
     📁 Workspace: <code>~/.openclaw/workspaces/\${folder}</code><br><br>
-    <strong>SOUL.md：</strong> \${soul?'含性格关键词':'默认成长型提示词（推荐）'}<br>
-    自动备份当前 openclaw.json ✓
+    <strong>SOUL.md：</strong> \${soul?t('wiz.soulYes'):t('wiz.soulDefault')}<br>
+    \${t('wiz.autoBackup')}
   \`;
 }
 async function submitCreateAgent(){
   const btn=document.getElementById('wNext');
-  btn.disabled=true; btn.textContent='创建中...';
+  btn.disabled=true; btn.textContent=t('wiz.creating');
   try{
     const r=await api('POST','/api/agents',{
       agentId:document.getElementById('f-aid').value.trim(),
@@ -2648,7 +2692,7 @@ async function submitCreateAgent(){
     });
     document.getElementById('createResult').innerHTML=
       \`<div class="notes"><ul>\${r.notes.map(n=>\`<li>\${n}</li>\`).join('')}</ul></div>\`;
-    btn.textContent='✅ 已创建'; btn.disabled=false;
+    btn.textContent=t('wiz.created'); btn.disabled=false;
     await loadAgents(); await loadChannels(); showRestartBanner();
     setTimeout(()=>closeModal('createModal'),3500);
     toast('Subagent '+r.agentId+' 创建成功！','success');
