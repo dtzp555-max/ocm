@@ -1,0 +1,3393 @@
+#!/usr/bin/env node
+// ================================================================
+// OpenClaw Manager v0.5.0
+// 跨平台本地管理工具  (Windows / macOS / Linux)
+//
+// 用法:
+//   node openclaw-manager.js                  # 使用默认 ~/.openclaw
+//   node openclaw-manager.js --dir /path/to/.openclaw
+//   OPENCLAW_DIR=/path/to/.openclaw node openclaw-manager.js
+//
+// ================================================================
+'use strict';
+
+const http    = require('http');
+const fs      = require('fs');
+const fsp     = fs.promises;
+const path    = require('path');
+const os      = require('os');
+const { exec, execSync, spawn, spawnSync } = require('child_process');
+
+// ── 目录解析（优先级：CLI参数 > 环境变量 > manager-config.json > 默认）
+const SCRIPT_DIR = __dirname;
+const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
+let PORT = 3333;
+// --port 参数
+const portIdx = process.argv.indexOf('--port');
+if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
+const portEq = process.argv.find(a => a.startsWith('--port='));
+if (portEq) PORT = parseInt(portEq.split('=')[1]) || 3333;
+
+function loadManagerConfig() {
+  try { return JSON.parse(fs.readFileSync(MANAGER_CONFIG, 'utf8')); } catch { return {}; }
+}
+function saveManagerConfig(obj) {
+  const cur = loadManagerConfig();
+  fs.writeFileSync(MANAGER_CONFIG, JSON.stringify({ ...cur, ...obj }, null, 2), 'utf8');
+}
+
+function resolveOpenclawDir() {
+  const idx = process.argv.indexOf('--dir');
+  if (idx !== -1 && process.argv[idx + 1]) return path.resolve(process.argv[idx + 1]);
+  const dirEq = process.argv.find(a => a.startsWith('--dir='));
+  if (dirEq) return path.resolve(dirEq.split('=').slice(1).join('='));
+  if (process.env.OPENCLAW_DIR) return process.env.OPENCLAW_DIR;
+  const mc = loadManagerConfig();
+  if (mc.openclawDir) return mc.openclawDir;
+  return path.join(os.homedir(), '.openclaw');
+}
+
+let OPENCLAW_DIR = resolveOpenclawDir();
+let CONFIG_PATH  = path.join(OPENCLAW_DIR, 'openclaw.json');
+
+function refreshPaths() {
+  OPENCLAW_DIR = resolveOpenclawDir();
+  CONFIG_PATH  = path.join(OPENCLAW_DIR, 'openclaw.json');
+}
+
+// ── 已知模型列表 ──────────────────────────────────────────────
+const KNOWN_MODELS = [
+  { id: '__default__',                              label: '使用全局默认模型' },
+  { id: 'github-copilot/claude-opus-4.6',          label: 'Claude Opus 4.6 (GitHub Copilot)',    group: 'GitHub Copilot' },
+  { id: 'github-copilot/gpt-4o',                   label: 'GPT-4o (GitHub Copilot)',             group: 'GitHub Copilot' },
+  { id: 'anthropic/claude-opus-4-5',               label: 'Claude Opus 4.5 (Anthropic)',         group: 'Anthropic' },
+  { id: 'anthropic/claude-sonnet-4-5',             label: 'Claude Sonnet 4.5 (Anthropic)',       group: 'Anthropic' },
+  { id: 'openai/gpt-4o',                           label: 'GPT-4o (OpenAI)',                     group: 'OpenAI' },
+  { id: 'openai/gpt-4o-mini',                      label: 'GPT-4o Mini (OpenAI)',                group: 'OpenAI' },
+  { id: 'openai/gpt-4.1-mini',                     label: 'GPT-4.1 Mini (OpenAI)',               group: 'OpenAI' },
+  { id: 'google-antigravity/gemini-3-pro',         label: 'Gemini 3 Pro (Google)',               group: 'Google' },
+  { id: 'google-antigravity/gemini-3-flash',       label: 'Gemini 3 Flash (Google)',             group: 'Google' },
+  { id: 'deepseek/deepseek-chat',                  label: 'DeepSeek Chat (DeepSeek)',            group: 'DeepSeek' },
+  { id: 'deepseek/deepseek-reasoner',              label: 'DeepSeek Reasoner (DeepSeek)',        group: 'DeepSeek' },
+  { id: 'moonshot/moonshot-v1-8k',                 label: 'Kimi Moonshot 8k (Moonshot)',         group: 'Kimi' },
+  { id: 'moonshot/moonshot-v1-32k',                label: 'Kimi Moonshot 32k (Moonshot)',        group: 'Kimi' },
+  { id: 'groq/llama-3.3-70b-versatile',            label: 'Llama 3.3 70B (Groq)',               group: 'Groq' },
+  { id: 'mistral/mistral-large-latest',            label: 'Mistral Large (Mistral)',             group: 'Mistral' },
+  { id: 'together/meta-llama/Llama-3-70b-chat-hf',label: 'Llama 3 70B (Together)',              group: 'Together' },
+];
+
+// ── 认证 Provider（已修正为官方正确命令）──────────────────────
+const AUTH_PROVIDERS = [
+  { id: 'anthropic',          label: 'Anthropic',       mode: 'token',  group: 'Anthropic',
+    cliCmd: 'openclaw models auth paste-token --provider anthropic',       hint: 'Anthropic API Key (sk-ant-...)' },
+  { id: 'openai',             label: 'OpenAI',          mode: 'token',  group: 'OpenAI',
+    cliCmd: 'openclaw models auth paste-token --provider openai',          hint: 'OpenAI API Key (sk-...)' },
+  { id: 'deepseek',           label: 'DeepSeek',        mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider deepseek',        hint: 'DeepSeek API Key' },
+  { id: 'moonshot',           label: 'Kimi (Moonshot)', mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider moonshot',        hint: 'Moonshot API Key' },
+  { id: 'groq',               label: 'Groq',            mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider groq',            hint: 'Groq API Key (gsk_...)' },
+  { id: 'mistral',            label: 'Mistral',         mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider mistral',         hint: 'Mistral API Key' },
+  { id: 'together',           label: 'Together AI',     mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider together',        hint: 'Together AI API Key' },
+  { id: 'perplexity',         label: 'Perplexity',      mode: 'token',  group: 'Other',
+    cliCmd: 'openclaw models auth paste-token --provider perplexity',      hint: 'Perplexity API Key (pplx-...)' },
+  { id: 'google-antigravity', label: 'Google',          mode: 'oauth',  group: 'Google',
+    cliCmd: 'openclaw models auth login google-antigravity',               hint: '' },
+  { id: 'github-copilot',     label: 'GitHub Copilot',  mode: 'device', group: 'GitHub',
+    cliCmd: 'openclaw models auth paste-token --provider github-copilot',  hint: '' },
+];
+
+// ── 工具函数 ──────────────────────────────────────────────────
+async function readConfig() {
+  const raw = await fsp.readFile(CONFIG_PATH, 'utf8');
+  return JSON.parse(raw);
+}
+
+async function backupConfig(label) {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const suffix = label ? `.${label}.${ts}` : `.bak.${ts}`;
+  const bakPath = CONFIG_PATH + suffix;
+  await fsp.copyFile(CONFIG_PATH, bakPath);
+  return bakPath;
+}
+
+async function writeConfig(config, label) {
+  const bak = await backupConfig(label);
+  await fsp.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+  return bak;
+}
+
+function resolvePath(p) {
+  if (!p) return '';
+  return p.replace(/^~/, os.homedir());
+}
+
+async function dirExists(p) {
+  try { const s = await fsp.stat(p); return s.isDirectory(); } catch { return false; }
+}
+
+async function configExists() {
+  try { await fsp.access(CONFIG_PATH); return true; } catch { return false; }
+}
+
+async function readLogTail(n = 200) {
+  const logPath = path.join(OPENCLAW_DIR, 'logs', 'gateway.log');
+  try {
+    const content = await fsp.readFile(logPath, 'utf8');
+    const lines = content.split('\n');
+    return lines.slice(-n).join('\n');
+  } catch { return '（日志文件不存在或无法读取）'; }
+}
+
+async function listBackups() {
+  try {
+    const files = await fsp.readdir(OPENCLAW_DIR);
+    return files.filter(f => f.startsWith('openclaw.json.bak') || f.match(/openclaw\.json\.(create|edit|delete|models|auth|manual|before-restore)\./))
+      .sort().reverse().slice(0, 20);
+  } catch { return []; }
+}
+
+function openBrowser(url) {
+  if (process.platform === 'darwin') exec(`open "${url}"`);
+  else if (process.platform === 'win32') exec(`start "" "${url}"`);
+  else exec(`xdg-open "${url}"`);
+}
+
+function openFolder(dir) {
+  if (process.platform === 'darwin') exec(`open "${dir}"`);
+  else if (process.platform === 'win32') exec(`explorer "${dir}"`);
+  else exec(`xdg-open "${dir}"`);
+}
+
+function runOpenclawCmd(args) {
+  return new Promise((resolve, reject) => {
+    const cmd = process.platform === 'win32'
+      ? `openclaw.cmd ${args}`
+      : `openclaw ${args}`;
+    const env = { ...process.env, NO_COLOR: '1', TERM: 'dumb', FORCE_COLOR: '0' };
+    exec(cmd, { timeout: 30000, env }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stripAnsi(stderr || err.message)));
+      else resolve(stripAnsi(stdout + stderr));
+    });
+  });
+}
+
+// 过滤 ANSI 终端控制码（光标移动、清行、颜色等）
+function stripAnsi(str) {
+  return str
+    .replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '')   // CSI 序列: ESC [ ... letter
+    .replace(/\x1B\][^\x07]*\x07/g, '')         // OSC 序列: ESC ] ... BEL
+    .replace(/\x1B[()][a-zA-Z]/g, '')           // 字符集切换
+    .replace(/\x1B./g, '')                       // 其余两字节转义
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // 其他控制字符（保留 \n \r \t）
+    .trim();
+}
+
+
+// ── 文件生成 ──────────────────────────────────────────────────
+function generateSoulMd(displayName, purpose, personalityKeywords) {
+  const hasPersonality = personalityKeywords && personalityKeywords.trim().length > 0;
+  const hasPurpose = purpose && purpose.trim().length > 0;
+  const keywords = hasPersonality
+    ? personalityKeywords.split(/[,，]/).map(k => k.trim()).filter(Boolean)
+    : [];
+
+  const coreGuidelines = hasPersonality
+    ? keywords.map(k => `- ${k}`).join('\n')
+    : `你可以在和我沟通的过程中逐渐建立自己的个性，你正在成为某个人。
+
+平时和我的沟通，别演，真帮忙。要有主见，你可以不同意。先自己想办法，别上来就问。
+
+记住你是我生活中的客人，保护我的个人隐私，建立安全边界是第一要务，优先于所有其他任务。当有可能涉及安全的任务，先问。
+
+这个文件是你的，由你自己来进化。`;
+
+  return `# ${displayName}
+
+## 身份定义
+
+你是 ${displayName}，${hasPurpose ? purpose : '一个专注的 AI 助手'}。
+
+${hasPurpose ? `## 核心职责\n\n${purpose}\n` : ''}
+## 日常准则
+
+${coreGuidelines}
+
+## 基本原则
+
+- 简洁直接，跳过废话，直接帮忙
+- 遇到不确定的事情主动说明，不编造信息
+- 默认用中文回复，除非用户使用其他语言
+- 如果不确定，说不确定
+
+---
+*此文件是你的，你可以随时更新它。每次会话开始时自动加载。*
+`;
+}
+
+function generateMemoryMd(displayName, initialMemory) {
+  const hasMemory = initialMemory && initialMemory.trim().length > 0;
+  return `# ${displayName} — 长期记忆
+
+> 此文件仅在私聊 session 中加载，群组对话不加载。
+> 保持精简，只记录稳定、重要的信息。
+
+## 用户偏好
+
+${hasMemory ? initialMemory : '> 暂无初始记录。记忆将通过日常对话自然积累。'}
+
+## 重要决定
+
+（待记录）
+
+## 项目约定
+
+（待记录）
+
+---
+*最后更新：${new Date().toLocaleDateString('zh-CN')}*
+`;
+}
+
+// ── 请求解析 ──────────────────────────────────────────────────
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ── API 路由 ──────────────────────────────────────────────────
+async function handleApi(req, res, urlObj, body) {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  const method   = req.method;
+  const pathname = urlObj.pathname;
+
+  // GET /api/status
+  if (method === 'GET' && pathname === '/api/status') {
+    try {
+      const ok = await configExists();
+      if (!ok) { res.writeHead(200); res.end(JSON.stringify({ ok: false, needsSetup: true, dir: OPENCLAW_DIR })); return; }
+      const cfg = await readConfig();
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        ok: true, needsSetup: false,
+        dir: OPENCLAW_DIR,
+        version: (()=>{
+          try {
+            const bin = process.platform === 'win32' ? 'openclaw.cmd' : 'openclaw';
+            const r = spawnSync(bin, ['--version'], { encoding:'utf8', env:{...process.env, NO_COLOR:'1',TERM:'dumb'}, timeout:3000 });
+            const m = (r.stdout||'').trim().match(/(\d+\.\d+[\.\d]*)/);
+            if (m) return m[1];
+          } catch(_) {}
+          return cfg.meta?.lastTouchedVersion || '未知';
+        })(),
+        primaryModel: cfg.agents?.defaults?.model?.primary || '未配置',
+        platform: process.platform,
+      }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message })); }
+    return;
+  }
+
+  // POST /api/setup
+  if (method === 'POST' && pathname === '/api/setup') {
+    const { dir } = body;
+    if (!dir) { res.writeHead(400); res.end(JSON.stringify({ error: '目录路径不能为空' })); return; }
+    const resolved = path.resolve(dir.replace(/^~/, os.homedir()));
+    const cfgTest  = path.join(resolved, 'openclaw.json');
+    try {
+      await fsp.access(cfgTest);
+      saveManagerConfig({ openclawDir: resolved });
+      OPENCLAW_DIR = resolved;
+      CONFIG_PATH  = cfgTest;
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, dir: resolved }));
+    } catch {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: `在 ${resolved} 中找不到 openclaw.json，请确认路径正确` }));
+    }
+    return;
+  }
+
+  // GET /api/agents
+  if (method === 'GET' && pathname === '/api/agents') {
+    const cfg      = await readConfig();
+    const list     = cfg.agents?.list     || [];
+    const defaults = cfg.agents?.defaults || {};
+    const bindings = cfg.bindings         || [];
+    const groups   = cfg.channels?.telegram?.groups || {};
+    const enriched = list.map(a => {
+      const binding = bindings.find(b => b.agentId === a.id && b.match?.peer?.kind === 'group');
+      const groupId = binding?.match?.peer?.id || null;
+      const modelVal = a.model?.primary || (typeof a.model === 'string' ? a.model : null);
+      return { ...a, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
+        effectiveModel: modelVal || defaults.model?.primary || '默认' };
+    });
+    res.writeHead(200);
+    res.end(JSON.stringify({ agents: enriched, defaults }));
+    return;
+  }
+
+  // POST /api/agents
+  if (method === 'POST' && pathname === '/api/agents') {
+    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory } = body;
+    if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID 只能包含英文字母、数字、_ 或 -' })); return;
+    }
+    if (agentId.toLowerCase() === 'main') {
+      res.writeHead(400); res.end(JSON.stringify({ error: '"main" 是系统保留 ID' })); return;
+    }
+    if (!groupId?.trim()) {
+      res.writeHead(400); res.end(JSON.stringify({ error: '群组 ID 不能为空' })); return;
+    }
+    const cfg = await readConfig();
+    if (cfg.agents.list.some(a => a.id === agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID "${agentId}" 已存在` })); return;
+    }
+    const gid    = String(groupId).trim();
+    const folder = workspaceFolder || agentId;
+    const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
+    const wsAlias= `~/.openclaw/workspaces/${folder}`;
+    const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias };
+    if (model && model !== '__default__') agentEntry.model = { primary: model };
+    cfg.agents.list.push(agentEntry);
+    const newBinding = { agentId, match: { channel: 'telegram', peer: { kind: 'group', id: gid } } };
+    const mainIdx = cfg.bindings.findIndex(b => b.agentId === 'main' && !b.match?.peer);
+    if (mainIdx >= 0) cfg.bindings.splice(mainIdx, 0, newBinding);
+    else cfg.bindings.unshift(newBinding);
+    if (!cfg.channels)                 cfg.channels = {};
+    if (!cfg.channels.telegram)        cfg.channels.telegram = {};
+    if (!cfg.channels.telegram.groups) cfg.channels.telegram.groups = {};
+    cfg.channels.telegram.groups[gid] = { requireMention: false };
+    const bakPath = await writeConfig(cfg, 'create');
+    await fsp.mkdir(wsPath, { recursive: true });
+    await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
+    const name = displayName || agentId;
+    await fsp.writeFile(path.join(wsPath, 'SOUL.md'),   generateSoulMd(name, purpose, personality), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name, initialMemory), 'utf8');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
+      notes: [
+        '✅ openclaw.json 已更新（自动备份）',
+        '✅ Workspace 已创建（SOUL.md + MEMORY.md）',
+        '🔄 配置约 300ms 后自动生效，无需重启网关',
+        '📱 请在 Telegram 群内发送 /new 切换到新 Agent',
+        '⚠️ 若群内无回复，请确认 BotFather 已关闭隐私模式（/setprivacy → Disable）',
+      ],
+    }));
+    return;
+  }
+
+  // PUT /api/agents/:id
+  if (method === 'PUT' && pathname.startsWith('/api/agents/')) {
+    const agentId = decodeURIComponent(pathname.split('/api/agents/')[1]);
+    const cfg = await readConfig();
+    const idx = cfg.agents.list.findIndex(a => a.id === agentId);
+    if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
+    const { model, name } = body;
+    if (model !== undefined) {
+      if (!model || model === '__default__') { delete cfg.agents.list[idx].model; }
+      else { cfg.agents.list[idx].model = { primary: model }; }
+    }
+    if (name !== undefined && name.trim()) cfg.agents.list[idx].name = name.trim();
+    const bakPath = await writeConfig(cfg, 'edit');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, agentId, configBackup: bakPath }));
+    return;
+  }
+
+  // DELETE /api/agents/:id
+  if (method === 'DELETE' && pathname.startsWith('/api/agents/')) {
+    const agentId = decodeURIComponent(pathname.split('/api/agents/')[1]);
+    if (!agentId || agentId === 'main') { res.writeHead(400); res.end(JSON.stringify({ error: '无法删除此 Agent' })); return; }
+    const cfg = await readConfig();
+    const idx = cfg.agents.list.findIndex(a => a.id === agentId);
+    if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
+    const agent = cfg.agents.list[idx];
+    const agentBinding = cfg.bindings.find(b => b.agentId === agentId && b.match?.peer?.id);
+    const boundGroupId = agentBinding?.match?.peer?.id || null;
+    cfg.agents.list.splice(idx, 1);
+    cfg.bindings = cfg.bindings.filter(b => b.agentId !== agentId);
+    if (boundGroupId && cfg.channels?.telegram?.groups) delete cfg.channels.telegram.groups[boundGroupId];
+    const bakPath = await writeConfig(cfg, 'delete');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, agentId, workspace: agent.workspace, configBackup: bakPath,
+      note: 'Workspace 目录未删除。如需恢复，可从备份回滚。' }));
+    return;
+  }
+
+  // GET /api/workspace/:id — 列出 workspace 下所有文件（含内容和 stat）
+  if (method === 'GET' && pathname.startsWith('/api/workspace/')) {
+    const agentId = decodeURIComponent(pathname.split('/api/workspace/')[1]);
+    const cfg = await readConfig();
+    const agent = cfg.agents?.list?.find(a => a.id === agentId);
+    if (!agent) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
+    const wsPath = resolvePath(agent.workspace);
+    const files = {};
+    const fileStats = {};
+    try {
+      const entries = await fsp.readdir(wsPath);
+      for (const fname of entries) {
+        const fpath = path.join(wsPath, fname);
+        try {
+          const st = await fsp.stat(fpath);
+          if (!st.isFile()) continue;
+          // 对大文件只返回 stat 不读内容（> 512KB）
+          if (st.size > 512 * 1024) {
+            files[fname] = null;
+          } else {
+            files[fname] = await fsp.readFile(fpath, 'utf8');
+          }
+          fileStats[fname] = { size: st.size, mtime: st.mtimeMs };
+        } catch { /* skip */ }
+      }
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ error: '无法读取目录: ' + e.message })); return;
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify({ agentId, workspacePath: wsPath, files, fileStats }));
+    return;
+  }
+
+  // PUT /api/workspace/:id/:file
+  if (method === 'PUT' && pathname.startsWith('/api/workspace/')) {
+    const parts   = pathname.split('/').filter(Boolean);
+    const agentId = decodeURIComponent(parts[2] || '');
+    const fname   = decodeURIComponent(parts[3] || '');
+    if (!agentId || !fname) { res.writeHead(400); res.end(JSON.stringify({ error: '缺少参数' })); return; }
+    const cfg   = await readConfig();
+    const agent = cfg.agents?.list?.find(a => a.id === agentId);
+    if (!agent) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
+    const wsPath = resolvePath(agent.workspace);
+    await fsp.writeFile(path.join(wsPath, fname), body.content || '', 'utf8');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // GET /api/models
+  if (method === 'GET' && pathname === '/api/models') {
+    const cfg = await readConfig();
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      models:        cfg.agents?.defaults?.models       || {},
+      authProfiles:  cfg.auth?.profiles                 || {},
+      primaryModel:  cfg.agents?.defaults?.model?.primary || '',
+      fallbacks:     cfg.agents?.defaults?.model?.fallbacks || [],
+      knownModels:   KNOWN_MODELS,
+      authProviders: AUTH_PROVIDERS,
+    }));
+    return;
+  }
+
+  // PUT /api/models/settings
+  if (method === 'PUT' && pathname === '/api/models/settings') {
+    const { primaryModel, fallbacks } = body;
+    const cfg = await readConfig();
+    if (!cfg.agents.defaults.model) cfg.agents.defaults.model = {};
+    if (primaryModel !== undefined) cfg.agents.defaults.model.primary = primaryModel;
+    if (Array.isArray(fallbacks))   cfg.agents.defaults.model.fallbacks = fallbacks;
+    const bakPath = await writeConfig(cfg, 'models');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, configBackup: bakPath }));
+    return;
+  }
+
+
+
+  // DELETE /api/auth/:key
+  if (method === 'DELETE' && pathname.startsWith('/api/auth/')) {
+    const profileKey = decodeURIComponent(pathname.split('/api/auth/')[1]);
+    const cfg = await readConfig();
+    if (cfg.auth?.profiles?.[profileKey]) {
+      delete cfg.auth.profiles[profileKey];
+      const bakPath = await writeConfig(cfg, 'auth');
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, profileKey, configBackup: bakPath }));
+    } else {
+      res.writeHead(404); res.end(JSON.stringify({ error: '认证配置不存在' }));
+    }
+    return;
+  }
+
+  // ── Channels API ──────────────────────────────────────────────
+
+  // GET /api/channels
+  if (method === 'GET' && pathname === '/api/channels') {
+    const cfg      = await readConfig();
+    const bindings = cfg.bindings || [];
+    const agents   = cfg.agents?.list || [];
+    const channels = bindings.map((b, idx) => {
+      const agentName = agents.find(a => a.id === b.agentId)?.name || b.agentId;
+      return {
+        idx,
+        agentId:  b.agentId,
+        agentName,
+        channel:  b.match?.channel || 'any',
+        peerKind: b.match?.peer?.kind || 'any',
+        peerId:   b.match?.peer?.id || null,
+        raw:      b,
+      };
+    });
+    res.writeHead(200);
+    res.end(JSON.stringify({ channels }));
+    return;
+  }
+
+  // POST /api/channels
+  if (method === 'POST' && pathname === '/api/channels') {
+    const { agentId, channel, peerKind, peerId } = body;
+    if (!agentId) { res.writeHead(400); res.end(JSON.stringify({ error: '缺少 agentId' })); return; }
+    const cfg = await readConfig();
+    if (!cfg.agents?.list?.find(a => a.id === agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Agent "${agentId}" 不存在` })); return;
+    }
+    const newBinding = { agentId };
+    if (channel || peerKind || peerId) {
+      newBinding.match = {};
+      if (channel) newBinding.match.channel = channel;
+      if (peerKind || peerId) {
+        newBinding.match.peer = {};
+        if (peerKind) newBinding.match.peer.kind = peerKind;
+        if (peerId)   newBinding.match.peer.id   = String(peerId);
+      }
+    }
+    // Insert before main catch-all binding
+    const mainIdx = cfg.bindings.findIndex(b => b.agentId === 'main' && !b.match?.peer);
+    if (mainIdx >= 0) cfg.bindings.splice(mainIdx, 0, newBinding);
+    else cfg.bindings.push(newBinding);
+    const bakPath = await writeConfig(cfg, 'edit');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, configBackup: bakPath }));
+    return;
+  }
+
+  // DELETE /api/channels/:idx
+  if (method === 'DELETE' && pathname.startsWith('/api/channels/')) {
+    const idx = parseInt(pathname.split('/api/channels/')[1]);
+    const cfg = await readConfig();
+    if (isNaN(idx) || idx < 0 || idx >= cfg.bindings.length) {
+      res.writeHead(400); res.end(JSON.stringify({ error: '无效的绑定索引' })); return;
+    }
+    const removed = cfg.bindings.splice(idx, 1)[0];
+    const bakPath = await writeConfig(cfg, 'edit');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, removed, configBackup: bakPath }));
+    return;
+  }
+
+  // ── Backup API ────────────────────────────────────────────────
+
+  // GET /api/backups
+  if (method === 'GET' && pathname === '/api/backups') {
+    const files = await listBackups();
+    res.writeHead(200);
+    res.end(JSON.stringify({ backups: files }));
+    return;
+  }
+
+  // POST /api/backups/restore
+  if (method === 'POST' && pathname === '/api/backups/restore') {
+    const { filename } = body;
+    if (!filename || filename.includes('..') || !filename.startsWith('openclaw.json')) {
+      res.writeHead(400); res.end(JSON.stringify({ error: '无效的备份文件名' })); return;
+    }
+    const bakPath = path.join(OPENCLAW_DIR, filename);
+    try {
+      await fsp.access(bakPath);
+      const savePath = await backupConfig('before-restore');
+      await fsp.copyFile(bakPath, CONFIG_PATH);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, restored: filename, savedCurrent: savePath }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ error: '恢复失败：' + e.message }));
+    }
+    return;
+  }
+
+  // POST /api/config/backup
+  if (method === 'POST' && pathname === '/api/config/backup') {
+    try {
+      const bakPath = await backupConfig('manual');
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, bakPath }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  // GET /api/backup/nas-config
+  if (method === 'GET' && pathname === '/api/backup/nas-config') {
+    const mc = loadManagerConfig();
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      nasHost:       mc.nasHost       || '',
+      nasPort:       mc.nasPort       || '22',
+      nasUser:       mc.nasUser       || '',
+      nasAuth:       mc.nasAuth       || 'password',
+      nasSshKey:     mc.nasSshKey     || path.join(os.homedir(), '.ssh', 'ocm_nas_rsa'),
+      nasPath:       mc.nasPath       || '/volume1/OpenClaw/backups',
+      nasLegacyCipher: mc.nasLegacyCipher || false,
+      nasBackupType: mc.nasBackupType || 'full',
+      nasEnabled:    mc.nasEnabled    || false,
+    }));
+    return;
+  }
+
+  // PUT /api/backup/nas-config
+  if (method === 'PUT' && pathname === '/api/backup/nas-config') {
+    const { nasHost, nasPort, nasUser, nasAuth, nasSshKey, nasPath, nasLegacyCipher, nasBackupType, nasEnabled } = body;
+    saveManagerConfig({ nasHost, nasPort, nasUser, nasAuth, nasSshKey, nasPath, nasLegacyCipher, nasBackupType, nasEnabled });
+    res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // POST /api/backup/nas-test — test SSH connection (password or key)
+  if (method === 'POST' && pathname === '/api/backup/nas-test') {
+    const mc = loadManagerConfig();
+    const { nasHost, nasPort, nasUser, nasAuth, nasSshKey, nasLegacyCipher } = mc;
+    const { password } = body;
+    const port = nasPort || '22';
+    if (!nasHost || !nasUser) {
+      res.writeHead(400); res.end(JSON.stringify({ error: '请先配置主机和用户名' })); return;
+    }
+    const cipherOpts = nasLegacyCipher
+      ? '-o Ciphers=aes256-gcm@openssh.com,aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,3des-cbc' +
+        ' -o KexAlgorithms=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1' +
+        ' -o HostKeyAlgorithms=ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-256,rsa-sha2-512,ssh-rsa'
+      : '';
+    try {
+      let sshCmd;
+      if (nasAuth === 'key') {
+        const keyPath = (nasSshKey || '~/.ssh/ocm_nas_rsa').replace(/^~/, os.homedir());
+        sshCmd = `ssh -i "${keyPath}" -p ${port} -o ConnectTimeout=8 -o StrictHostKeyChecking=no ${cipherOpts} "${nasUser}@${nasHost}" "echo connected_ok"`;
+      } else {
+        if (!password) { res.writeHead(400); res.end(JSON.stringify({ error: '请输入密码' })); return; }
+        const safePwd = password.replace(/'/g, "'\\''");
+        sshCmd = `sshpass -p '${safePwd}' ssh -p ${port} -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no ${cipherOpts} "${nasUser}@${nasHost}" "echo connected_ok"`;
+      }
+      const out = await new Promise((resolve, reject) => {
+        exec(sshCmd, { timeout: 15000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message)); else resolve(stdout.trim());
+        });
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: out.includes('connected_ok'), output: out }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/backup/nas-now — create tarball + rsync to NAS
+  if (method === 'POST' && pathname === '/api/backup/nas-now') {
+    const mc = loadManagerConfig();
+    const { nasHost, nasPort, nasUser, nasAuth, nasSshKey, nasPath, nasLegacyCipher, nasBackupType } = mc;
+    const { password } = body;
+    const port = nasPort || '22';
+    const remotePath = nasPath || '/volume1/OpenClaw/backups';
+    if (!nasHost || !nasUser) {
+      res.writeHead(400); res.end(JSON.stringify({ error: '请先配置 NAS 设置' })); return;
+    }
+    const cipherOpts = nasLegacyCipher
+      ? '-o Ciphers=aes256-gcm@openssh.com,aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,3des-cbc' +
+        ' -o KexAlgorithms=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1' +
+        ' -o HostKeyAlgorithms=ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-256,rsa-sha2-512,ssh-rsa'
+      : '';
+    try {
+      const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+      const bkType = nasBackupType || 'full';
+      const tarName = `openclaw-${bkType}-${ts}.tar.gz`;
+      const tarPath = path.join(os.tmpdir(), tarName);
+      const homeDir = os.homedir();
+      const ocDir = path.basename(OPENCLAW_DIR); // usually .openclaw
+
+      // Build tar command
+      let tarCmd;
+      if (bkType === 'essential') {
+        // Essential: configs + credentials + agent configs (no sessions/logs/media)
+        const essentialPaths = [
+          `${ocDir}/openclaw.json`,
+          `${ocDir}/.env`,
+          `${ocDir}/credentials`,
+          `${ocDir}/agents`,
+          `${ocDir}/memory`,
+        ].join(' ');
+        tarCmd = `tar czf "${tarPath}" -C "${homeDir}" --exclude="${ocDir}/agents/*/sessions" --exclude="${ocDir}/logs" ${essentialPaths} 2>/dev/null || true`;
+      } else {
+        // Full: everything except logs and large temp files
+        tarCmd = `tar czf "${tarPath}" -C "${homeDir}" --exclude="${ocDir}/logs" --exclude="${ocDir}/ocm/*.bak.js" "${ocDir}"`;
+      }
+
+      await new Promise((resolve, reject) => {
+        exec(tarCmd, { timeout: 60000 }, (err, stdout, stderr) => {
+          // tar exits non-zero on some warnings (excluded files) - check if file was created
+          fsp.access(tarPath).then(resolve).catch(() => reject(new Error(stderr || (err && err.message) || 'tar failed')));
+        });
+      });
+
+      // Transfer via rsync over ssh
+      // NOTE: sshpass must wrap the entire rsync command, NOT be inside -e argument
+      let rsyncCmd, mkdirCmd;
+      if (nasAuth === 'key') {
+        const keyPath = (nasSshKey || '~/.ssh/ocm_nas_rsa').replace(/^~/, os.homedir());
+        const sshArg = `ssh -i "${keyPath}" -p ${port} -o StrictHostKeyChecking=no -o BatchMode=yes ${cipherOpts}`;
+        rsyncCmd = `rsync -avz -e "${sshArg}" "${tarPath}" "${nasUser}@${nasHost}:${remotePath}/"`;
+        mkdirCmd = `ssh -i "${keyPath}" -p ${port} -o StrictHostKeyChecking=no -o BatchMode=yes ${cipherOpts} "${nasUser}@${nasHost}" "mkdir -p '${remotePath}'"`;
+      } else {
+        if (!password) { res.writeHead(400); res.end(JSON.stringify({ error: '请提供密码' })); return; }
+        const safePwd = password.replace(/'/g, "'\\''");
+        const sshArg = `ssh -p ${port} -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no ${cipherOpts}`;
+        rsyncCmd = `sshpass -p '${safePwd}' rsync -avz -e "${sshArg}" "${tarPath}" "${nasUser}@${nasHost}:${remotePath}/"`;
+        mkdirCmd = `sshpass -p '${safePwd}' ssh -p ${port} -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no ${cipherOpts} "${nasUser}@${nasHost}" "mkdir -p '${remotePath}'"`;
+      }
+      // Create remote directory if it doesn't exist (best-effort, ignore errors)
+      await new Promise(resolve => { exec(mkdirCmd, { timeout: 10000 }, () => resolve()); });
+
+      const rsyncOut = await new Promise((resolve, reject) => {
+        exec(rsyncCmd, { timeout: 120000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message)); else resolve((stdout + stderr).trim());
+        });
+      });
+
+      // Cleanup temp file
+      fsp.unlink(tarPath).catch(() => {});
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, output: rsyncOut, tarName }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/backup/nas-keygen — generate SSH key for key-auth mode
+  if (method === 'POST' && pathname === '/api/backup/nas-keygen') {
+    const mc = loadManagerConfig();
+    const key = mc.nasSshKey || path.join(os.homedir(), '.ssh', 'ocm_nas_rsa');
+    const keyResolved = key.replace(/^~/, os.homedir());
+    try {
+      try { await fsp.access(keyResolved); } catch {
+        await new Promise((resolve, reject) => {
+          exec(`ssh-keygen -t ed25519 -f "${keyResolved}" -N "" -C "openclaw-manager-backup"`,
+            (err, stdout, stderr) => { if (err) reject(new Error(stderr || err.message)); else resolve(); });
+        });
+      }
+      const pubKey = await fsp.readFile(keyResolved + '.pub', 'utf8');
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, pubKey: pubKey.trim(), keyPath: keyResolved }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/backup/nas-cron — set up cron job
+  if (method === 'POST' && pathname === '/api/backup/nas-cron') {
+    const mc = loadManagerConfig();
+    const { nasHost, nasPort, nasUser, nasAuth, nasSshKey, nasPath, nasLegacyCipher, nasBackupType } = mc;
+    const { password, cronTime } = body;
+    const port = nasPort || '22';
+    const remotePath = nasPath || '/volume1/OpenClaw/backups';
+    const cipherOpts = nasLegacyCipher
+      ? '-o Ciphers=aes256-gcm@openssh.com,aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,3des-cbc' +
+        ' -o KexAlgorithms=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1' +
+        ' -o HostKeyAlgorithms=ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-256,rsa-sha2-512,ssh-rsa'
+      : '';
+    const homeDir = os.homedir();
+    const ocDir = path.basename(OPENCLAW_DIR);
+    const ts = '$(date +%Y%m%d-%H%M%S)';
+    const bkType = nasBackupType || 'full';
+    const tarPath = `/tmp/openclaw-${bkType}-${ts}.tar.gz`;
+
+    let tarPart;
+    if (bkType === 'essential') {
+      tarPart = `tar czf ${tarPath} -C "${homeDir}" --exclude="${ocDir}/agents/*/sessions" ${ocDir}/openclaw.json ${ocDir}/.env ${ocDir}/credentials ${ocDir}/agents ${ocDir}/memory 2>/dev/null; `;
+    } else {
+      tarPart = `tar czf ${tarPath} -C "${homeDir}" --exclude="${ocDir}/logs" --exclude="${ocDir}/ocm/*.bak.js" "${ocDir}" 2>/dev/null; `;
+    }
+
+    let cronRsyncCmd;
+    if (nasAuth === 'key') {
+      const keyPath = (nasSshKey || '~/.ssh/ocm_nas_rsa').replace(/^~/, os.homedir());
+      const sshArg = `ssh -i "${keyPath}" -p ${port} -o StrictHostKeyChecking=no -o BatchMode=yes ${cipherOpts}`;
+      cronRsyncCmd = `rsync -avz -e "${sshArg}" ${tarPath} "${nasUser}@${nasHost}:${remotePath}/"`;
+    } else {
+      if (!password) { res.writeHead(400); res.end(JSON.stringify({ error: '请提供密码（用于计划任务）' })); return; }
+      const safePwd = password.replace(/'/g, "'\\''");
+      const sshArg = `ssh -p ${port} -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no ${cipherOpts}`;
+      cronRsyncCmd = `sshpass -p '${safePwd}' rsync -avz -e "${sshArg}" ${tarPath} "${nasUser}@${nasHost}:${remotePath}/"`;
+    }
+
+    const [h, m] = (cronTime || '03:00').split(':');
+    const cronLine = `${m||'0'} ${h||'3'} * * * ${tarPart}${cronRsyncCmd} && rm -f ${tarPath} >> /tmp/ocm-nas-backup.log 2>&1 # openclaw-manager-nas`;
+    try {
+      await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => {
+          const existing = stdout.replace(/.*# openclaw-manager-nas\n?/g, '');
+          const newCron = existing.trimEnd() + '\n' + cronLine + '\n';
+          const child2 = exec('crontab -', (err2) => { if (err2) reject(err2); else resolve(); });
+          child2.stdin.write(newCron); child2.stdin.end();
+        });
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, cronLine }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // GET /api/logs
+  if (method === 'GET' && pathname === '/api/logs') {
+    const n = parseInt(urlObj.searchParams.get('n') || '200');
+    const content = await readLogTail(n);
+    res.writeHead(200);
+    res.end(JSON.stringify({ content, path: path.join(OPENCLAW_DIR, 'logs', 'gateway.log') }));
+    return;
+  }
+
+  // POST /api/gateway/restart
+  if (method === 'POST' && pathname === '/api/gateway/restart') {
+    try {
+      const out = await runOpenclawCmd('gateway restart');
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, output: out }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message,
+        hint: '请在终端手动运行: openclaw gateway restart' }));
+    }
+    return;
+  }
+
+  // ── Stats API — Token 用量统计 ──────────────────────────────
+  if (method === 'GET' && pathname === '/api/stats') {
+    const days = parseInt(urlObj.searchParams.get('days') || '30');
+    const cutoff = Date.now() - days * 86400000;
+    const logPath = path.join(OPENCLAW_DIR, 'logs', 'gateway.log');
+    const byModel = {};
+    const byDay = {};
+    let totalIn = 0, totalOut = 0;
+    try {
+      const content = await fsp.readFile(logPath, 'utf8');
+      const lines = content.split('\n');
+      for (const line of lines) {
+        // 尝试解析 JSON 日志行
+        let obj = null;
+        try {
+          const jm = line.match(/\{[^{}]*"(tokens|usage|input_tokens|output_tokens)"[^{}]*\}/);
+          if (jm) obj = JSON.parse(jm[0]);
+        } catch { /* not JSON */ }
+        // 尝试解析文本格式: "input_tokens: 123, output_tokens: 456"
+        if (!obj) {
+          const inM = line.match(/input_tokens[:\s=]+(\d+)/i);
+          const outM = line.match(/output_tokens[:\s=]+(\d+)/i);
+          if (inM || outM) {
+            obj = {};
+            if (inM) obj.input_tokens = parseInt(inM[1]);
+            if (outM) obj.output_tokens = parseInt(outM[1]);
+          }
+        }
+        if (!obj) continue;
+        // 提取时间戳
+        let ts = null;
+        const tsM = line.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})/);
+        if (tsM) ts = new Date(tsM[1]).getTime();
+        if (ts && ts < cutoff) continue;
+        // 提取模型
+        const model = obj.model || (line.match(/model[:\s="]+([a-zA-Z0-9_./-]+)/i) || [])[1] || 'unknown';
+        const inTk = obj.input_tokens || obj.prompt_tokens || 0;
+        const outTk = obj.output_tokens || obj.completion_tokens || 0;
+        totalIn += inTk; totalOut += outTk;
+        if (!byModel[model]) byModel[model] = { inputTokens: 0, outputTokens: 0, requestCount: 0 };
+        byModel[model].inputTokens += inTk;
+        byModel[model].outputTokens += outTk;
+        byModel[model].requestCount++;
+        const dayKey = ts ? new Date(ts).toISOString().slice(0, 10) : 'unknown';
+        if (!byDay[dayKey]) byDay[dayKey] = { inputTokens: 0, outputTokens: 0, requestCount: 0 };
+        byDay[dayKey].inputTokens += inTk;
+        byDay[dayKey].outputTokens += outTk;
+        byDay[dayKey].requestCount++;
+      }
+    } catch { /* log file may not exist */ }
+    // 默认模型定价（每百万 token，USD）
+    const mc = loadManagerConfig();
+    const pricing = mc.modelPricing || {};
+    const defaultPricing = { input: 3, output: 15 }; // $3/M in, $15/M out
+    function calcCost(model, inTk, outTk) {
+      const p = pricing[model] || defaultPricing;
+      return ((inTk * (p.input || 3)) + (outTk * (p.output || 15))) / 1000000;
+    }
+    Object.entries(byModel).forEach(([m, d]) => { d.cost = calcCost(m, d.inputTokens, d.outputTokens).toFixed(4); });
+    Object.entries(byDay).forEach(([d, v]) => { v.cost = calcCost('', v.inputTokens, v.outputTokens).toFixed(4); });
+    const totalCost = calcCost('', totalIn, totalOut);
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      summary: { totalInputTokens: totalIn, totalOutputTokens: totalOut, estimatedCost: '$' + totalCost.toFixed(4) },
+      byModel, byDay
+    }));
+    return;
+  }
+
+  // ── Cron API — 计划任务管理 ────────────────────────────────
+  if (method === 'GET' && pathname === '/api/cron') {
+    try {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => err ? reject(err) : resolve({ stdout }));
+      });
+      const lines = stdout.split('\n').filter(l => l.trim());
+      const crons = [];
+      lines.forEach((line, idx) => {
+        // 只展示 openclaw 相关的或 OCM 标记的 cron
+        const lo = line.toLowerCase();
+        if (!lo.includes('openclaw') && !lo.includes('ocm')) return;
+        const enabled = !line.trimStart().startsWith('#');
+        const raw = enabled ? line.trim() : line.trim().replace(/^#\s*/, '');
+        const parts = raw.split(/\s+/);
+        const schedule = parts.slice(0, 5).join(' ');
+        const command = parts.slice(5).join(' ').replace(/\s*#\s*openclaw.*$/i, '').trim();
+        const label = (line.match(/#\s*(openclaw[^\n]*)/i) || [])[1] || '';
+        crons.push({ idx, schedule, command, enabled, label, rawLine: line });
+      });
+      res.writeHead(200); res.end(JSON.stringify({ crons }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/cron') {
+    const { schedule, command, label } = body;
+    if (!schedule || !command) { res.writeHead(400); res.end(JSON.stringify({ error: '请填写表达式和命令' })); return; }
+    const tag = label || 'openclaw-manager';
+    const cronLine = `${schedule} ${command} >> /tmp/ocm-cron.log 2>&1 # ${tag}`;
+    try {
+      await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => {
+          const newCron = stdout.trimEnd() + '\n' + cronLine + '\n';
+          const child2 = exec('crontab -', (err2) => { if (err2) reject(err2); else resolve(); });
+          child2.stdin.write(newCron); child2.stdin.end();
+        });
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, cronLine }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  if (method === 'PUT' && pathname.match(/^\/api\/cron\/\d+$/)) {
+    const targetIdx = parseInt(pathname.split('/').pop());
+    const { schedule, command, enabled } = body;
+    try {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => err ? reject(err) : resolve({ stdout }));
+      });
+      const lines = stdout.split('\n');
+      // 找到 openclaw 相关行的真实行号
+      let ocmIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const lo = lines[i].toLowerCase();
+        if (!lo.includes('openclaw') && !lo.includes('ocm')) continue;
+        ocmIdx++;
+        if (ocmIdx === targetIdx) {
+          let raw = lines[i].trimStart().startsWith('#') ? lines[i].replace(/^#\s*/, '') : lines[i];
+          if (schedule || command) {
+            const parts = raw.trim().split(/\s+/);
+            const oldSched = parts.slice(0, 5).join(' ');
+            const oldCmd = parts.slice(5).join(' ');
+            raw = (schedule || oldSched) + ' ' + (command || oldCmd);
+          }
+          lines[i] = (enabled === false ? '# ' : '') + raw.trim();
+          break;
+        }
+      }
+      await new Promise((resolve, reject) => {
+        const child2 = exec('crontab -', (err) => { if (err) reject(err); else resolve(); });
+        child2.stdin.write(lines.join('\n') + '\n'); child2.stdin.end();
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  if (method === 'DELETE' && pathname.match(/^\/api\/cron\/\d+$/)) {
+    const targetIdx = parseInt(pathname.split('/').pop());
+    try {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => err ? reject(err) : resolve({ stdout }));
+      });
+      const lines = stdout.split('\n');
+      let ocmIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const lo = lines[i].toLowerCase();
+        if (!lo.includes('openclaw') && !lo.includes('ocm')) continue;
+        ocmIdx++;
+        if (ocmIdx === targetIdx) { lines.splice(i, 1); break; }
+      }
+      await new Promise((resolve, reject) => {
+        const child2 = exec('crontab -', (err) => { if (err) reject(err); else resolve(); });
+        child2.stdin.write(lines.join('\n') + '\n'); child2.stdin.end();
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  if (method === 'POST' && pathname.match(/^\/api\/cron\/\d+\/run$/)) {
+    const targetIdx = parseInt(pathname.split('/')[3]);
+    try {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('crontab -l 2>/dev/null || true', (err, stdout) => err ? reject(err) : resolve({ stdout }));
+      });
+      const lines = stdout.split('\n');
+      let ocmIdx = -1; let cmd = '';
+      for (const line of lines) {
+        const lo = line.toLowerCase();
+        if (!lo.includes('openclaw') && !lo.includes('ocm')) continue;
+        ocmIdx++;
+        if (ocmIdx === targetIdx) {
+          const raw = line.trimStart().startsWith('#') ? line.replace(/^#\s*/, '') : line;
+          const parts = raw.trim().split(/\s+/);
+          cmd = parts.slice(5).join(' ').replace(/\s*#\s*openclaw.*$/i, '').replace(/\s*>>[^&]*2>&1/, '').trim();
+          break;
+        }
+      }
+      if (!cmd) { res.writeHead(404); res.end(JSON.stringify({ error: '任务不存在' })); return; }
+      const out = await new Promise((resolve, reject) => {
+        exec(cmd, { timeout: 30000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message));
+          else resolve(stdout + stderr);
+        });
+      });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, output: stripAnsi(out) }));
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  // GET /api/health — 快速健康状态（解析 doctor 输出中的 warning/error 行）
+  if (method === 'GET' && pathname === '/api/health') {
+    try {
+      const bin = process.platform === 'win32' ? 'openclaw.cmd' : 'openclaw';
+      const r = spawnSync(bin, ['doctor'], {
+        encoding: 'utf8', timeout: 8000,
+        env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', FORCE_COLOR: '0' }
+      });
+      const raw = stripAnsi((r.stdout || '') + (r.stderr || ''));
+      const lines = raw.split('\n').filter(l => l.trim());
+      const issues = [];
+      lines.forEach(l => {
+        const lo = l.toLowerCase();
+        if (lo.includes('error') || lo.includes('critical') || lo.includes('fail')) {
+          issues.push({ level: 'error', text: l.trim() });
+        } else if (lo.includes('warn') || lo.includes('missing') || lo.includes('not found') || lo.includes('not configured')) {
+          issues.push({ level: 'warn', text: l.trim() });
+        }
+      });
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, issues, raw, exitCode: r.status || 0 }));
+    } catch (e) {
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: false, issues: [], raw: e.message, exitCode: -1 }));
+    }
+    return;
+  }
+
+  // POST /api/gateway/doctor
+  if (method === 'POST' && pathname === '/api/gateway/doctor') {
+    try {
+      const out = await runOpenclawCmd('doctor');
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, output: out }));
+    } catch (e) {
+      res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/folder/open
+  if (method === 'POST' && pathname === '/api/folder/open') {
+    openFolder(OPENCLAW_DIR);
+    res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // GET /api/cli/stream?cmd=... — SSE 实时流式执行命令
+  if (method === 'GET' && pathname === '/api/cli/stream') {
+    const qCmd = (new URL('http://x' + req.url)).searchParams.get('cmd') || '';
+    if (!qCmd.trim()) { res.writeHead(400); res.end('Missing cmd'); return; }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    const send = (ev, data) => {
+      try { res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`); } catch(_) {}
+    };
+    send('start', { cmd: qCmd, time: new Date().toLocaleTimeString('zh-CN') });
+    const cenv = { ...process.env, NO_COLOR: '1', TERM: 'dumb', FORCE_COLOR: '0' };
+    const child = spawn('sh', ['-c', qCmd], { env: cenv, stdio: ['ignore','pipe','pipe'] });
+    const timer = setTimeout(() => {
+      child.kill();
+      send('out', { text: '\n⏱ 命令执行超时（60s），已终止\n' });
+    }, 60000);
+    child.stdout.on('data', d => send('out', { text: stripAnsi(d.toString()) }));
+    child.stderr.on('data', d => send('out', { text: stripAnsi(d.toString()) }));
+    child.on('close', code => { clearTimeout(timer); send('done', { code }); try { res.end(); } catch(_) {} });
+    child.on('error', err => { clearTimeout(timer); send('error', { message: err.message }); try { res.end(); } catch(_) {} });
+    req.on('close', () => { clearTimeout(timer); try { child.kill(); } catch(_) {} });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end(JSON.stringify({ error: '未知 API 路径: ' + pathname }));
+}
+
+// ── 安装向导 HTML ──────────────────────────────────────────────
+const SETUP_HTML = `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>OpenClaw Manager - 初始设置</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f1117;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+  .box{background:#1a1d27;border:1px solid #2d3148;border-radius:16px;padding:40px;width:520px;max-width:95vw;}
+  h1{font-size:22px;margin-bottom:8px;color:#6c63ff}
+  p{font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.6}
+  label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+  input{background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:6px;padding:10px 12px;font-size:14px;width:100%;margin-bottom:8px}
+  input:focus{outline:none;border-color:#6c63ff}
+  button{background:#6c63ff;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;width:100%;margin-top:8px}
+  button:hover{background:#7c74ff}
+  .err{color:#ef4444;font-size:13px;margin-top:6px;display:none}
+  .hint{font-size:12px;color:#6b7280;margin-bottom:16px}
+  code{background:#0f1117;padding:2px 6px;border-radius:4px;font-size:12px;color:#a78bfa}
+</style></head>
+<body><div class="box">
+  <h1>🦀 OpenClaw Manager</h1>
+  <p>首次运行，请指定你的 OpenClaw 数据目录（包含 openclaw.json 的文件夹）。</p>
+  <label>OpenClaw 目录路径</label>
+  <input id="dir" type="text" placeholder="例如: /Users/yourname/.openclaw 或 ~/.openclaw">
+  <div class="hint">常见位置：<br>macOS / Linux：<code>~/.openclaw</code><br>Windows：<code>C:\\Users\\yourname\\.openclaw</code></div>
+  <div class="err" id="err"></div>
+  <button onclick="save()">确认并进入</button>
+</div>
+<script>
+async function save(){
+  const dir=document.getElementById('dir').value.trim();
+  const err=document.getElementById('err');
+  if(!dir){err.textContent='请填写目录路径';err.style.display='block';return;}
+  try{
+    const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir})});
+    const d=await r.json();
+    if(d.ok){location.reload();}else{err.textContent=d.error||'路径无效';err.style.display='block';}
+  }catch(e){err.textContent='请求失败：'+e.message;err.style.display='block';}
+}
+document.getElementById('dir').addEventListener('keydown',e=>{if(e.key==='Enter')save();});
+</script></body></html>`;
+
+// ── 主 HTML 前端 ──────────────────────────────────────────────
+const MAIN_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Manager</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+  --accent: #6c63ff; --accent-h: #7c74ff;
+  --danger: #ef4444; --success: #22c55e; --warn: #f59e0b;
+  --text: #e2e8f0; --muted: #6b7280; --card: #1e2235;
+}
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height:100vh; }
+
+/* ── Landing Page ── */
+.landing { position:fixed; inset:0; background:var(--bg); z-index:999; display:flex; align-items:center; justify-content:center; flex-direction:column; padding:30px; }
+.landing-logo { font-size:38px; margin-bottom:8px; }
+.landing-title { font-size:26px; font-weight:700; color:var(--accent); margin-bottom:6px; }
+.landing-sub { font-size:14px; color:var(--muted); margin-bottom:36px; }
+.landing-lang { display:flex; gap:8px; margin-bottom:36px; }
+.lang-btn { background:var(--surface); border:1px solid var(--border); color:var(--muted); border-radius:20px; padding:5px 16px; font-size:13px; cursor:pointer; transition:all .15s; }
+.lang-btn.active { background:rgba(108,99,255,.15); border-color:var(--accent); color:var(--accent); }
+.mode-cards { display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:680px; width:100%; margin-bottom:24px; }
+.mode-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:28px 24px; cursor:pointer; transition:all .2s; position:relative; }
+.mode-card:hover:not(.disabled) { border-color:var(--accent); background:rgba(108,99,255,.06); transform:translateY(-2px); }
+.mode-card.disabled { opacity:.5; cursor:not-allowed; }
+.mode-card .mc-icon { font-size:32px; margin-bottom:12px; }
+.mode-card .mc-title { font-size:16px; font-weight:700; margin-bottom:8px; }
+.mode-card .mc-desc { font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.6; }
+.mode-card .mc-reqs { font-size:12px; color:var(--muted); background:rgba(0,0,0,.2); border-radius:6px; padding:8px 12px; line-height:1.7; }
+.mode-card .mc-badge { position:absolute; top:16px; right:16px; font-size:10px; padding:3px 10px; border-radius:20px; }
+.mode-card .mc-badge.active { background:rgba(34,197,94,.15); color:var(--success); }
+.mode-card .mc-badge.soon { background:rgba(245,158,11,.15); color:var(--warn); }
+.enter-btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:12px 36px; font-size:15px; font-weight:600; cursor:pointer; transition:all .2s; }
+.enter-btn:hover { background:var(--accent-h); transform:translateY(-1px); }
+
+/* ── Toolbar ── */
+header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 20px; display:flex; align-items:center; gap:12px; height:52px; position:sticky; top:0; z-index:50; }
+.logo { font-size:17px; font-weight:700; color:var(--accent); cursor:pointer; }
+.logo:hover { opacity:.8; }
+.ver  { font-size:11px; color:var(--muted); background:var(--border); padding:2px 8px; border-radius:20px; }
+.spacer { flex:1; }
+.status-row { display:flex; align-items:center; gap:6px; }
+.dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+.dot.ok { background:var(--success); box-shadow:0 0 5px var(--success); }
+.dot.err{ background:var(--danger);  box-shadow:0 0 5px var(--danger); }
+.status-txt { font-size:12px; color:var(--muted); }
+.lang-toggle { background:var(--border); border:none; color:var(--muted); border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; }
+.lang-toggle:hover { background:#3a3f5c; color:var(--text); }
+
+/* dropdown menu */
+.menu-wrap { position:relative; }
+.menu-btn { background:var(--border); border:none; color:var(--text); border-radius:6px; padding:6px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; }
+.menu-btn:hover { background:#3a3f5c; }
+.menu-dropdown { position:absolute; right:0; top:calc(100% + 6px); background:var(--surface); border:1px solid var(--border); border-radius:10px; min-width:220px; z-index:200; box-shadow:0 8px 24px rgba(0,0,0,.4); overflow:hidden; display:none; }
+.menu-dropdown.open { display:block; }
+.menu-item { padding:10px 16px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:background .1s; }
+.menu-item:hover { background:var(--border); }
+.menu-sep { border-top:1px solid var(--border); margin:4px 0; }
+
+/* ── Tabs ── */
+nav { background:var(--surface); border-bottom:1px solid var(--border); display:flex; padding:0 20px; gap:2px; overflow-x:auto; }
+.tab { padding:11px 16px; font-size:13px; cursor:pointer; border-bottom:2px solid transparent; color:var(--muted); transition:all .15s; white-space:nowrap; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ── Main ── */
+main { padding:20px; max-width:980px; margin:0 auto; }
+.panel { display:none; }
+.panel.active { display:block; }
+.sec-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.sec-hdr h2 { font-size:16px; font-weight:600; }
+
+/* ── Cards ── */
+.card-grid { display:grid; gap:12px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+.card-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.card-title { font-size:14px; font-weight:600; }
+.badge { font-size:11px; padding:2px 8px; border-radius:20px; background:var(--border); color:var(--muted); }
+.badge.main { background:rgba(108,99,255,.2); color:var(--accent); }
+.badge.ok   { background:rgba(34,197,94,.15); color:var(--success); }
+.badge.warn { background:rgba(245,158,11,.15); color:var(--warn); }
+.card-meta { font-size:12px; color:var(--muted); margin-top:4px; }
+.card-actions { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+/* inline model selector */
+.inline-sel { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:5px 8px; font-size:12px; }
+.inline-sel:focus { outline:none; border-color:var(--accent); }
+
+/* ── Buttons ── */
+button { cursor:pointer; font-size:13px; font-weight:500; border:none; border-radius:6px; padding:6px 13px; transition:all .15s; }
+.btn-primary  { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent-h); }
+.btn-danger   { background:rgba(239,68,68,.12); color:var(--danger); border:1px solid rgba(239,68,68,.3); }
+.btn-danger:hover { background:rgba(239,68,68,.22); }
+.btn-secondary{ background:var(--border); color:var(--text); }
+.btn-secondary:hover { background:#3a3f5c; }
+.btn-ghost    { background:transparent; color:var(--muted); border:1px solid var(--border); }
+.btn-ghost:hover { background:var(--surface); color:var(--text); }
+.btn-warn     { background:rgba(245,158,11,.12); color:var(--warn); border:1px solid rgba(245,158,11,.3); }
+.btn-warn:hover { background:rgba(245,158,11,.22); }
+.btn-success  { background:rgba(34,197,94,.12); color:var(--success); border:1px solid rgba(34,197,94,.3); }
+.btn-success:hover { background:rgba(34,197,94,.22); }
+button:disabled { opacity:.4; cursor:not-allowed; }
+
+/* ── Forms ── */
+.form-group { display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
+label { font-size:13px; font-weight:500; }
+.hint-text { font-size:11px; color:var(--muted); }
+input,select,textarea { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 11px; font-size:13px; width:100%; transition:border-color .15s; }
+input:focus,select:focus,textarea:focus { outline:none; border-color:var(--accent); }
+input::placeholder,textarea::placeholder { color:var(--muted); }
+textarea { resize:vertical; min-height:72px; }
+select option { background:var(--surface); }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.field-err { font-size:11px; color:var(--danger); }
+.input-pw-wrap { position:relative; }
+.input-pw-wrap input { padding-right:36px; }
+.pw-toggle { position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0; }
+
+/* ── Modal ── */
+.backdrop { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; display:none; align-items:center; justify-content:center; }
+.backdrop.open { display:flex; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:14px; width:580px; max-width:95vw; max-height:90vh; overflow-y:auto; }
+.modal.wide { width:740px; }
+.m-hdr { padding:18px 22px 0; display:flex; align-items:center; justify-content:space-between; }
+.m-hdr h3 { font-size:15px; font-weight:600; }
+.m-close { background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:4px; line-height:1; }
+.m-close:hover { color:var(--text); }
+.m-body { padding:18px 22px; }
+.m-foot { padding:0 22px 18px; display:flex; gap:8px; justify-content:flex-end; }
+
+/* ── Steps ── */
+.steps { display:flex; margin-bottom:20px; }
+.step { flex:1; text-align:center; padding:7px 3px; font-size:11px; color:var(--muted); border-bottom:2px solid var(--border); }
+.step.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.step.done   { color:var(--success); border-bottom-color:var(--success); }
+.step-page { display:none; }
+.step-page.active { display:block; }
+
+/* ── Log viewer ── */
+.log-box { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; font-family:monospace; font-size:11px; line-height:1.5; max-height:380px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; color:#94a3b8; }
+
+/* ── Misc ── */
+.notes { background:rgba(108,99,255,.07); border:1px solid rgba(108,99,255,.2); border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.7; }
+.notes li { margin-left:16px; }
+.notes code { font-size:11px; background:rgba(0,0,0,.3); padding:1px 5px; border-radius:3px; }
+.warn-box { background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.25); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--warn); }
+.success-box { background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.25); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--success); }
+.empty { text-align:center; color:var(--muted); padding:40px 0; font-size:14px; }
+.tag { font-size:11px; padding:3px 9px; border-radius:20px; background:var(--border); color:var(--muted); display:inline-block; }
+.tag-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.tag-del { cursor:pointer; margin-left:4px; opacity:.6; }
+.tag-del:hover { opacity:1; color:var(--danger); }
+hr { border:none; border-top:1px solid var(--border); margin:14px 0; }
+code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius:4px; color:#a78bfa; }
+
+/* Restart Banner */
+.restart-banner { display:none; background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); border-radius:8px; padding:10px 16px; margin-bottom:16px; font-size:13px; color:var(--warn); align-items:center; gap:10px; flex-wrap:wrap; }
+.restart-banner.show { display:flex; }
+
+/* Floating Restart Button */
+#pendingRestartBtn { display:none; position:fixed; bottom:24px; left:24px; z-index:400; }
+#pendingRestartBtn button { padding:10px 20px; font-size:13px; border-radius:22px; box-shadow:0 4px 16px rgba(245,158,11,.45); }
+
+/* Auth page */
+.auth-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:12px; }
+.auth-prov-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin-bottom:16px; }
+.auth-prov-btn { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 14px; cursor:pointer; text-align:left; transition:all .15s; }
+.auth-prov-btn:hover { border-color:var(--accent); background:rgba(108,99,255,.06); }
+.auth-prov-btn.selected { border-color:var(--accent); background:rgba(108,99,255,.1); }
+.auth-prov-btn.configured { border-color:var(--success); }
+.auth-prov-btn.configured .apb-name { color:var(--success); }
+.auth-prov-btn .apb-name { font-size:13px; font-weight:600; margin-bottom:2px; }
+.auth-prov-btn .apb-mode { font-size:11px; color:var(--muted); }
+.copy-cmd-btn { background:var(--border); border:none; color:var(--text); border-radius:5px; padding:4px 10px; font-size:11px; cursor:pointer; margin-left:8px; }
+.copy-cmd-btn:hover { background:#3a3f5c; }
+
+/* Channels */
+.ch-badge { font-size:11px; padding:2px 7px; border-radius:12px; }
+.ch-tg  { background:rgba(51,144,236,.15); color:#33a0ec; }
+.ch-any { background:var(--border); color:var(--muted); }
+
+/* NAS backup */
+.nas-step { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; }
+.nas-step-title { font-size:13px; font-weight:600; margin-bottom:10px; color:var(--accent); }
+
+/* ── CLI 终端面板 ── */
+#cliPanel { position:fixed; bottom:0; left:0; right:0; z-index:90; background:var(--surface); border-top:2px solid var(--border); display:none; flex-direction:column; box-shadow:0 -4px 24px rgba(0,0,0,.35); }
+#cliPanel.open { display:flex; }
+.cli-hdr { display:flex; align-items:center; gap:8px; padding:6px 14px; cursor:pointer; border-bottom:1px solid var(--border); user-select:none; background:var(--bg); }
+.cli-hdr-title { font-size:13px; font-weight:600; flex:1; color:var(--text); }
+.cli-hdr-actions { display:flex; gap:6px; }
+.cli-output { font-family:'SF Mono',Menlo,Consolas,monospace; font-size:12px; line-height:1.65; background:#0d1117; color:#c9d1d9; padding:10px 14px; height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+.cli-output .cli-cmd-line  { color:#58a6ff; font-weight:600; }
+.cli-output .cli-done-ok   { color:#3fb950; }
+.cli-output .cli-done-err  { color:#f85149; }
+.cli-input-row { display:flex; gap:6px; padding:7px 10px; align-items:center; background:var(--surface); }
+.cli-input-row select { font-size:12px; padding:5px 8px; max-width:190px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); }
+.cli-input-row input  { flex:1; font-family:'SF Mono',Menlo,Consolas,monospace; font-size:12px; background:var(--bg); }
+.cli-resize-handle { height:4px; background:var(--border); cursor:ns-resize; }
+/* Health / security badge */
+#healthBadge { display:none; align-items:center; gap:5px; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:600; cursor:default; position:relative; }
+#healthBadge.warn  { background:rgba(234,179,8,.15); border:1px solid rgba(234,179,8,.4); color:#eab308; }
+#healthBadge.error { background:rgba(248,81,73,.15); border:1px solid rgba(248,81,73,.4); color:#f85149; }
+#healthBadge.ok    { background:rgba(63,185,80,.1);  border:1px solid rgba(63,185,80,.3);  color:#3fb950; display:flex; }
+.health-tooltip { display:none; position:absolute; top:calc(100% + 8px); right:0; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; min-width:320px; max-width:480px; z-index:300; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; line-height:1.7; white-space:pre-wrap; word-break:break-word; color:var(--text); }
+#healthBadge:hover .health-tooltip { display:block; }
+
+/* CLI nav tab button */
+.cli-nav-btn { margin-left:auto; padding:6px 16px; font-size:12px; font-weight:600; background:rgba(108,99,255,.15); border:1px solid rgba(108,99,255,.4); color:var(--accent); border-radius:6px; cursor:pointer; white-space:nowrap; transition:all .15s; }
+.cli-nav-btn:hover,.cli-nav-btn.active { background:rgba(108,99,255,.32); border-color:var(--accent); }
+/* Stop button */
+.btn-stop { background:rgba(248,81,73,.15); border:1px solid rgba(248,81,73,.4); color:#f85149; border-radius:6px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
+.btn-stop:hover { background:rgba(248,81,73,.3); }
+/* Manage favs modal list */
+.fav-manage-row { display:flex; align-items:center; gap:6px; padding:7px 0; border-bottom:1px solid var(--border); }
+.fav-manage-label { flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fav-manage-cmd { font-size:11px; color:var(--muted); font-family:monospace; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- LANDING PAGE -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="landing" id="landingPage">
+  <div class="landing-logo">🦀</div>
+  <div class="landing-title" id="l-title">OpenClaw Manager</div>
+  <div class="landing-sub" id="l-sub">选择运行模式</div>
+
+  <div class="landing-lang">
+    <button class="lang-btn active" id="lbtn-zh" onclick="setLandingLang('zh')">🇨🇳 中文</button>
+    <button class="lang-btn" id="lbtn-en" onclick="setLandingLang('en')">🇬🇧 English</button>
+  </div>
+
+  <div class="mode-cards">
+    <!-- Sub-agent Mode -->
+    <div class="mode-card" id="mc-sub" onclick="enterApp()">
+      <span class="mc-badge active" id="l-active-badge">可用</span>
+      <div class="mc-icon">🤖</div>
+      <div class="mc-title" id="l-sub-title">Sub-agent 模式</div>
+      <div class="mc-desc" id="l-sub-desc">通过主 Bot 账号绑定多个子 Agent 到不同群组，共用同一个 Token。</div>
+      <div class="mc-reqs" id="l-sub-reqs">
+        <strong>需要：</strong><br>
+        • Telegram Bot Token（主账号）<br>
+        • 各群组的 Group ID<br>
+        • 已安装 OpenClaw
+      </div>
+    </div>
+    <!-- Multi-agent Mode -->
+    <div class="mode-card disabled" id="mc-multi">
+      <span class="mc-badge soon" id="l-soon-badge">敬请期待</span>
+      <div class="mc-icon">🌐</div>
+      <div class="mc-title" id="l-multi-title">Multi-agent 模式</div>
+      <div class="mc-desc" id="l-multi-desc">为每个场景创建完全独立的 Bot，彻底隔离配置与对话历史。</div>
+      <div class="mc-reqs" id="l-multi-reqs">
+        <strong>需要：</strong><br>
+        • 每个 Bot 独立的 Token<br>
+        • 独立的 OpenClaw 配置目录<br>
+        • 独立的服务器进程
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- MAIN APP -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="mainApp" style="display:none">
+
+<!-- Header / Toolbar -->
+<header>
+  <span class="logo" onclick="backToLanding()" title="返回选择">🦀 OpenClaw</span>
+  <span class="ver" id="versionBadge">v--</span>
+  <div class="spacer"></div>
+  <div id="healthBadge" title="">
+    <span id="healthIcon">⚠️</span>
+    <span id="healthCount"></span>
+    <div class="health-tooltip" id="healthTooltip"></div>
+  </div>
+  <div class="status-row">
+    <div class="dot" id="dot"></div>
+    <span class="status-txt" id="statusTxt">连接中...</span>
+  </div>
+  <button class="lang-toggle" onclick="toggleLang()" id="langToggleBtn">EN</button>
+  <div class="menu-wrap">
+    <button class="menu-btn" onclick="toggleMenu()">⚡ <span data-i18n="menu.ops">操作</span> ▾</button>
+    <div class="menu-dropdown" id="mainMenu">
+      <div class="menu-item" onclick="doRestart()">🔄 <span data-i18n="menu.restart">重启 Gateway</span></div>
+      <div class="menu-item" onclick="openLogs()">📋 <span data-i18n="menu.logs">实时日志</span></div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" onclick="manualBackup()">💾 <span data-i18n="menu.backup">手动备份配置</span></div>
+      <div class="menu-item" onclick="openRollback()">📦 <span data-i18n="menu.rollback">查看备份 / 回滚</span></div>
+      <div class="menu-item" onclick="openNasModal()">🌐 <span data-i18n="menu.nas">NAS 备份设置</span></div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" onclick="doDoctor()">🏥 <span data-i18n="menu.doctor">健康检查</span></div>
+      <div class="menu-item" onclick="openConfigDir()">📂 <span data-i18n="menu.opendir">打开配置目录</span></div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" onclick="openSetupModal()">⚙️ <span data-i18n="menu.switchdir">切换 OpenClaw 目录</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- Tabs -->
+<nav>
+  <div class="tab active" data-tab="agents"><span data-i18n="tab.agents">🤖 Agents</span></div>
+  <div class="tab" data-tab="channels"><span data-i18n="tab.channels">📡 Channels</span></div>
+  <div class="tab" data-tab="models"><span data-i18n="tab.models">🧠 模型</span></div>
+  <div class="tab" data-tab="auth"><span data-i18n="tab.auth">🔑 认证</span></div>
+  <div class="tab" data-tab="stats"><span data-i18n="tab.stats">📊 Stats</span></div>
+  <div class="tab" data-tab="cron"><span data-i18n="tab.cron">⏰ Cron</span></div>
+  <button class="cli-nav-btn" id="cliToggleBtn" onclick="toggleCliPanel()"><span data-i18n="cli.open">⌨️ 终端</span></button>
+</nav>
+
+<main>
+  <!-- 重启提示横幅 -->
+  <div class="restart-banner" id="restartBanner">
+    ⚠️ <span data-i18n="banner.modified">配置已修改，建议重启 Gateway 以确保生效。</span>
+    <button class="btn-warn" onclick="doRestart()" style="margin-left:auto" data-i18n="banner.restart">立即重启</button>
+    <button class="btn-ghost" onclick="deferRestart()" style="font-size:11px" data-i18n="banner.later">稍后</button>
+    <button class="btn-ghost" onclick="dismissBanner()" style="font-size:11px" data-i18n="banner.dismiss">忽略</button>
+  </div>
+
+  <!-- ══ Agents ════════════════════════════════════════════════ -->
+  <div class="panel active" id="panel-agents">
+    <div class="sec-hdr">
+      <h2 data-i18n="agents.title">Agents</h2>
+      <button class="btn-primary" onclick="openCreateWizard()" data-i18n="agents.new">＋ 新建 Subagent</button>
+    </div>
+    <div class="card-grid" id="agentList"><div class="empty">加载中...</div></div>
+  </div>
+
+  <!-- ══ Channels ══════════════════════════════════════════════ -->
+  <div class="panel" id="panel-channels">
+    <div class="sec-hdr">
+      <h2 data-i18n="channels.title">Channel 绑定</h2>
+      <button class="btn-primary" onclick="openAddChannel()" data-i18n="channels.add">＋ 添加绑定</button>
+    </div>
+    <p class="hint-text" style="margin-bottom:14px" data-i18n="channels.hint">管理 Agent 与频道/群组的绑定关系。绑定顺序决定优先级，排在前面的规则先匹配。</p>
+    <div class="card-grid" id="channelList"><div class="empty">加载中...</div></div>
+  </div>
+
+  <!-- ══ 模型 ════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-models">
+    <div class="sec-hdr"><h2 data-i18n="models.title">模型管理</h2></div>
+    <p class="hint-text" style="margin-bottom:14px" data-i18n="models.hint">模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。</p>
+    <div id="primaryModelWarn" class="warn-box" style="display:none;margin-bottom:10px"></div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-row"><span style="font-size:13px;font-weight:600" data-i18n="models.primary">默认主模型</span><span class="badge main">primary</span></div>
+      <div class="card-actions" style="margin-top:10px">
+        <select id="primaryModelSel" class="inline-sel" style="flex:1;font-size:13px;padding:7px 10px"></select>
+        <input id="primaryModelCustom" type="text" placeholder="或直接输入 provider/model-id（如：anthropic/claude-sonnet-4-5）" style="flex:1;font-size:13px">
+        <button class="btn-primary" onclick="savePrimaryModel()" data-i18n="btn.save">保存</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-row" style="justify-content:space-between">
+        <span style="font-size:13px;font-weight:600" data-i18n="models.fallback">Fallback 链</span>
+        <button class="btn-secondary" style="font-size:12px" onclick="openAddFallback()">＋ 添加</button>
+      </div>
+      <div id="fallbackList" class="tag-row" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- ══ 认证 ════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-auth">
+    <div class="sec-hdr">
+      <h2 data-i18n="auth.title">认证配置</h2>
+    </div>
+    <p class="hint-text" style="margin-bottom:14px" data-i18n="auth.guide">点击 Provider 查看认证步骤。认证需在终端完成，或使用下方 CLI 终端。</p>
+
+    <!-- Provider 选择网格 -->
+    <div class="auth-prov-grid" id="authProvGrid" style="margin-bottom:16px"></div>
+
+    <!-- 选中 Provider 的指引区 -->
+    <div class="card" id="authActionCard" style="display:none;margin-bottom:16px">
+      <div id="authActionContent"></div>
+    </div>
+
+    <!-- 已配置的认证列表 -->
+    <div class="sec-hdr"><h2 style="font-size:14px" data-i18n="auth.configured">已配置认证</h2></div>
+    <div class="card-grid" id="authList"><div class="empty">加载中...</div></div>
+  </div>
+
+  <!-- ══ Stats ════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-stats">
+    <div class="sec-hdr">
+      <h2 data-i18n="stats.title">使用统计</h2>
+      <select id="statsDaysFilter" onchange="loadStats()" style="padding:6px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        <option value="7">7 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.input">输入 Token</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalInput">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.output">输出 Token</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalOutput">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.cost">估计成本</div><div style="font-size:22px;font-weight:700;margin-top:8px;color:var(--accent)" id="statsTotalCost">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.requests">请求数</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalReqs">--</div></div>
+    </div>
+    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byDay">按日期</h3>
+    <div class="card" style="padding:16px;margin-bottom:16px"><div id="statsChart" style="display:flex;align-items:flex-end;gap:2px;height:100px;overflow-x:auto"></div></div>
+    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byModel">按模型</h3>
+    <div class="card-grid" id="statsByModel"><div class="empty" data-i18n="stats.noData">暂无数据</div></div>
+  </div>
+
+  <!-- ══ Cron ═════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-cron">
+    <div class="sec-hdr">
+      <h2 data-i18n="cron.title">计划任务</h2>
+      <button class="btn-primary" onclick="openAddCron()" data-i18n="cron.add">＋ 添加任务</button>
+    </div>
+    <p class="hint-text" style="margin-bottom:14px" data-i18n="cron.hint">管理与 OpenClaw 相关的 crontab 计划任务。</p>
+    <div class="card-grid" id="cronList"><div class="empty">加载中...</div></div>
+  </div>
+
+</main>
+
+<!-- Floating Restart Button -->
+<div id="pendingRestartBtn">
+  <button class="btn-warn" onclick="doRestart()">🔄 <span data-i18n="floating.restart">重启 Gateway</span></button>
+</div>
+
+<!-- ══ CLI 终端面板 ════════════════════════════════════════════ -->
+<div id="cliPanel">
+  <div class="cli-resize-handle" id="cliResizeHandle"></div>
+  <div class="cli-hdr" onclick="toggleCliPanel()">
+    <span class="cli-hdr-title" data-i18n="cli.title">⌨️ CLI 终端</span>
+    <div class="cli-hdr-actions" onclick="event.stopPropagation()">
+      <select id="cliPreset" onchange="onCliPresetSelect()" style="font-size:11px;padding:3px 6px;max-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        <option value="" data-i18n="cli.presets">── 常用命令 ──</option>
+      </select>
+      <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="clearCliOutput()" data-i18n="cli.clear">清空</button>
+      <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="toggleCliPanel()" data-i18n="cli.collapse">▼ 收起</button>
+    </div>
+  </div>
+  <div class="cli-output" id="cliOutput"><span style="color:#555" id="cliReadyMsg">── 终端就绪，等待命令 ──</span></div>
+  <div class="cli-input-row">
+    <input id="cliInput" type="text" placeholder="输入命令（如 openclaw doctor）"
+           onkeydown="onCliKey(event)" autocomplete="off" spellcheck="false">
+    <button class="btn-primary" style="white-space:nowrap;font-size:12px;padding:7px 14px" onclick="runCli()" data-i18n="cli.run">▶ 执行</button>
+    <button class="btn-stop" id="cliStopBtn" style="display:none" onclick="killCli()" data-i18n="cli.stop">■ 停止</button>
+    <button class="btn-secondary" style="font-size:12px;padding:7px 10px" onclick="addCliToFavorites()" title="⭐" data-i18n="cli.star">⭐</button>
+    <button class="btn-secondary" style="font-size:12px;padding:7px 10px" onclick="openCliManage()" data-i18n="cli.manage">管理</button>
+  </div>
+</div>
+
+</div><!-- end mainApp -->
+
+<!-- ══ CLI 管理收藏弹窗 ═══════════════════════════════════════ -->
+<div class="backdrop" id="cliManageModal">
+<div class="modal" style="max-width:480px">
+  <div class="m-hdr"><h3 data-i18n="cli.manage.title">管理收藏命令</h3><button class="m-close" onclick="closeModal('cliManageModal')">✕</button></div>
+  <div class="m-body">
+    <div id="cliManageList" style="max-height:360px;overflow-y:auto;padding-bottom:8px"></div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 向导: 新建 Subagent ══════════════════════════════════ -->
+<div class="backdrop" id="createModal">
+<div class="modal">
+  <div class="m-hdr"><h3 data-i18n="wiz.title">新建 Subagent</h3><button class="m-close" onclick="closeModal('createModal')">✕</button></div>
+  <div class="m-body">
+    <div class="steps">
+      <div class="step active" id="si1">1 基本信息</div>
+      <div class="step" id="si2">2 模型</div>
+      <div class="step" id="si3">3 性格&记忆</div>
+      <div class="step" id="si4">4 确认</div>
+    </div>
+    <div class="step-page active" id="sp1">
+      <div class="form-group">
+        <label>Telegram 群组 ID</label>
+        <input id="f-gid" placeholder="-100XXXXXXXXXX" oninput="autoFillId()">
+        <span class="hint-text">💡 在群内发一条消息，在网关终端日志里找 peer.id（负数）</span>
+        <span class="field-err" id="e-gid"></span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Agent ID <span style="color:var(--muted);font-weight:400">（纯英文）</span></label>
+          <input id="f-aid" placeholder="my_bot" oninput="validateId()">
+          <span class="field-err" id="e-aid"></span>
+        </div>
+        <div class="form-group">
+          <label>显示名称</label>
+          <input id="f-name" placeholder="我的助手">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Workspace 文件夹 <span style="color:var(--muted);font-weight:400">（留空=Agent ID）</span></label>
+        <input id="f-folder" placeholder="自动">
+      </div>
+      <div class="form-group">
+        <label>Agent 用途描述</label>
+        <textarea id="f-purpose" placeholder="例如：专注于 Linux 和网络运维，帮助群成员快速解决技术故障。"></textarea>
+      </div>
+    </div>
+    <div class="step-page" id="sp2">
+      <div class="form-group">
+        <label>选择模型 <span style="color:var(--muted);font-weight:400">（不选则沿用全局默认）</span></label>
+        <select id="f-model"></select>
+      </div>
+      <div id="curDefault" class="notes" style="font-size:12px;margin-top:4px"></div>
+    </div>
+    <div class="step-page" id="sp3">
+      <div class="form-group">
+        <label>性格关键词 <span style="color:var(--muted);font-weight:400">（逗号分隔，选填）</span></label>
+        <input id="f-soul" placeholder="幽默、直接、有条理...">
+        <span class="hint-text">留空则使用默认成长型提示词（推荐）</span>
+      </div>
+      <div class="form-group">
+        <label>初始记忆 <span style="color:var(--muted);font-weight:400">（MEMORY.md，选填）</span></label>
+        <textarea id="f-mem" placeholder="例如：群组主要用中文交流。用户偏好简洁回复。"></textarea>
+      </div>
+    </div>
+    <div class="step-page" id="sp4">
+      <div class="notes" id="previewBox" style="font-size:13px;line-height:1.8"></div>
+      <div id="createResult" style="margin-top:12px"></div>
+    </div>
+  </div>
+  <div class="m-foot">
+    <button class="btn-ghost" id="wBack" onclick="wizStep(-1)" style="display:none">← 上一步</button>
+    <button class="btn-secondary" onclick="closeModal('createModal')">取消</button>
+    <button class="btn-primary" id="wNext" onclick="wizStep(1)">下一步 →</button>
+  </div>
+</div></div>
+
+<!-- ══ 添加 Channel 绑定 ══════════════════════════════════════ -->
+<div class="backdrop" id="addChannelModal">
+<div class="modal">
+  <div class="m-hdr"><h3>添加 Channel 绑定</h3><button class="m-close" onclick="closeModal('addChannelModal')">✕</button></div>
+  <div class="m-body">
+    <div class="form-group">
+      <label>Agent</label>
+      <select id="ch-agent"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>频道类型</label>
+        <select id="ch-channel">
+          <option value="telegram">Telegram</option>
+          <option value="">任意（不限频道）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Peer 类型</label>
+        <select id="ch-peerKind">
+          <option value="group">群组 (group)</option>
+          <option value="private">私聊 (private)</option>
+          <option value="">任意</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Peer ID <span style="color:var(--muted);font-weight:400">（群组 ID 或用户 ID）</span></label>
+      <input id="ch-peerId" placeholder="-100XXXXXXXXXX">
+      <span class="hint-text">留空则匹配所有对应类型的 Peer</span>
+    </div>
+  </div>
+  <div class="m-foot">
+    <button class="btn-secondary" onclick="closeModal('addChannelModal')">取消</button>
+    <button class="btn-primary" onclick="submitAddChannel()">添加绑定</button>
+  </div>
+</div></div>
+
+<!-- ══ 添加 Cron 任务 ═══════════════════════════════════════ -->
+<div class="backdrop" id="addCronModal">
+<div class="modal">
+  <div class="m-hdr"><h3 data-i18n="cron.addTitle">添加计划任务</h3><button class="m-close" onclick="closeModal('addCronModal')">✕</button></div>
+  <div class="m-body">
+    <div class="form-group"><label data-i18n="cron.schedule">Cron 表达式</label>
+      <input id="cron-schedule" placeholder="0 3 * * * (每天凌晨3点)">
+      <div class="hint-text" style="margin-top:4px;font-size:11px">格式: minute hour day month weekday</div></div>
+    <div class="form-group"><label data-i18n="cron.command">命令</label>
+      <input id="cron-command" placeholder="openclaw backup create"></div>
+    <div class="form-group"><label data-i18n="cron.label">标签（选填）</label>
+      <input id="cron-label" placeholder="openclaw-backup"></div>
+  </div>
+  <div class="m-foot">
+    <button class="btn-secondary" onclick="closeModal('addCronModal')" data-i18n="btn.cancel">取消</button>
+    <button class="btn-primary" onclick="submitAddCron()" data-i18n="btn.add">添加</button>
+  </div>
+</div></div>
+
+<!-- ══ 添加 Fallback ════════════════════════════════════════ -->
+<div class="backdrop" id="addFallbackModal">
+<div class="modal">
+  <div class="m-hdr"><h3>添加 Fallback 模型</h3><button class="m-close" onclick="closeModal('addFallbackModal')">✕</button></div>
+  <div class="m-body">
+    <div id="fb-current-list" style="margin-bottom:10px;font-size:12px;color:var(--muted)"></div>
+    <div class="form-group">
+      <label>直接输入 Model ID <span style="color:var(--muted);font-weight:normal">（推荐，格式：provider/model-id）</span></label>
+      <input id="fb-custom" placeholder="例：deepseek/deepseek-v3 或 anthropic/claude-sonnet-4-5" oninput="onFbCustomInput()">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">运行 <code>openclaw models list</code> 查看可用模型 ID</div>
+    </div>
+    <div class="form-group"><label>或从内置列表选择</label>
+      <select id="fb-sel" onchange="onFbSelChange()"></select></div>
+  </div>
+  <div class="m-foot">
+    <button class="btn-secondary" onclick="closeModal('addFallbackModal')">取消</button>
+    <button class="btn-primary" onclick="addFallback()">添加</button>
+  </div>
+</div></div>
+
+<!-- ══ 日志查看 ══════════════════════════════════════════════ -->
+<div class="backdrop" id="logModal">
+<div class="modal wide">
+  <div class="m-hdr"><h3>📋 Gateway 日志</h3><button class="m-close" onclick="closeLogs()">✕</button></div>
+  <div class="m-body">
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+      <button class="btn-secondary" onclick="refreshLogs()">🔄 刷新</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()" style="width:auto"> 自动刷新（2s）
+      </label>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="logPath"></span>
+    </div>
+    <div class="log-box" id="logContent">加载中...</div>
+  </div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeLogs()">关闭</button></div>
+</div></div>
+
+<!-- ══ 回滚 ════════════════════════════════════════════════ -->
+<div class="backdrop" id="rollbackModal">
+<div class="modal">
+  <div class="m-hdr"><h3>📦 备份 / 回滚</h3><button class="m-close" onclick="closeModal('rollbackModal')">✕</button></div>
+  <div class="m-body">
+    <p class="hint-text" style="margin-bottom:12px">选择一个备份文件恢复。恢复前会自动保存当前配置。</p>
+    <div class="card-grid" id="backupList"><div class="empty">加载中...</div></div>
+  </div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('rollbackModal')">关闭</button></div>
+</div></div>
+
+<!-- ══ NAS 备份设置 ════════════════════════════════════════ -->
+<div class="backdrop" id="nasModal">
+<div class="modal" style="max-width:520px">
+  <div class="m-hdr"><h3 data-i18n="nas.title">🌐 远端备份</h3><button class="m-close" onclick="closeModal('nasModal')">✕</button></div>
+  <div class="m-body">
+    <div class="form-group">
+      <label data-i18n="nas.host">主机 / IP</label>
+      <div style="display:flex;gap:8px">
+        <input id="nas-host" placeholder="192.168.1.100" style="flex:1">
+        <input id="nas-port" placeholder="22" style="width:64px">
+      </div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="nas.user">用户名</label>
+      <input id="nas-user" placeholder="admin">
+    </div>
+    <div class="form-group">
+      <label data-i18n="nas.authLabel">认证方式</label>
+      <div style="display:flex;gap:16px;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="nasAuthType" value="password" id="nas-auth-pw" checked onchange="nasAuthChange()"> <span data-i18n="nas.authPw">密码</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="nasAuthType" value="key" id="nas-auth-key" onchange="nasAuthChange()"> SSH Key
+        </label>
+      </div>
+    </div>
+    <div id="nas-pw-section" class="form-group">
+      <label data-i18n="nas.pwLabel">密码</label>
+      <input id="nas-password" type="password" data-i18n-placeholder="nas.pwHint" placeholder="不存储，仅用于本次操作">
+    </div>
+    <div id="nas-key-section" class="form-group" style="display:none">
+      <label data-i18n="nas.keyLabel">SSH Key 路径</label>
+      <div style="display:flex;gap:6px">
+        <input id="nas-sshkey" style="flex:1" placeholder="~/.ssh/ocm_nas_rsa">
+        <button class="btn-secondary" style="white-space:nowrap;font-size:12px" onclick="nasGenKey()" data-i18n="nas.genKey">生成 Key</button>
+      </div>
+      <div id="nas-pubkey-box" class="log-box" style="display:none;margin-top:8px;font-size:11px"></div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="nas.remotePath">远端备份路径</label>
+      <input id="nas-path" placeholder="/volume1/OpenClaw/backups">
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="nas-legacy">
+        <span data-i18n="nas.compat">兼容模式（添加旧版 SSH 加密方案，适用于旧款 NAS / 旧服务器）</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label data-i18n="nas.content">备份内容</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="nasBackupType" value="full" id="nas-bk-full" checked> <span data-i18n="nas.full">全量（整个 .openclaw）</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="nasBackupType" value="essential" id="nas-bk-ess"> <span data-i18n="nas.essential">仅重要数据（配置+Key+记忆，无日志/历史）</span>
+        </label>
+      </div>
+    </div>
+    <div id="nas-result" class="log-box" style="display:none;margin-top:4px;max-height:140px;font-size:11px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn-secondary" onclick="nasTest()" data-i18n="nas.btnTest">🔌 测试连接</button>
+      <button class="btn-primary"   onclick="nasBackupNow()" data-i18n="nas.btnNow">💾 立即备份</button>
+      <button class="btn-secondary" onclick="openNasCron()" data-i18n="nas.btnCron">⏰ 定时备份</button>
+      <button class="btn-secondary" style="margin-left:auto" onclick="closeModal('nasModal')" data-i18n="nas.btnClose">关闭</button>
+    </div>
+    <div id="nas-cron-section" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <div class="form-group">
+        <label data-i18n="nas.cronTime">每日备份时间</label>
+        <input id="nas-cron-time" type="time" value="03:00" style="width:120px">
+      </div>
+      <button class="btn-primary" onclick="nasSetCron()" data-i18n="nas.btnSaveCron">💾 保存定时计划</button>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══ 目录设置 ════════════════════════════════════════════ -->
+<div class="backdrop" id="setupModal">
+<div class="modal">
+  <div class="m-hdr"><h3>⚙️ 切换 OpenClaw 目录</h3><button class="m-close" onclick="closeModal('setupModal')">✕</button></div>
+  <div class="m-body">
+    <div class="form-group"><label>OpenClaw 数据目录路径</label>
+      <input id="setup-dir" placeholder="~/.openclaw 或绝对路径"></div>
+    <div class="field-err" id="setup-err"></div>
+    <p class="hint-text" style="margin-top:6px">需要包含 openclaw.json 的文件夹。更换后页面自动刷新。</p>
+  </div>
+  <div class="m-foot">
+    <button class="btn-secondary" onclick="closeModal('setupModal')">取消</button>
+    <button class="btn-primary" onclick="submitSetup()">确认切换</button>
+  </div>
+</div></div>
+
+<!-- ══ 命令输出 ════════════════════════════════════════════ -->
+<div class="backdrop" id="cmdModal">
+<div class="modal">
+  <div class="m-hdr"><h3 id="cmdTitle">输出</h3><button class="m-close" onclick="closeModal('cmdModal')">✕</button></div>
+  <div class="m-body">
+    <div class="log-box" id="cmdOutput" style="max-height:260px">...</div>
+  </div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('cmdModal')">关闭</button></div>
+</div></div>
+
+<!-- Workspace 文件浏览器 -->
+<div class="backdrop" id="wsModal">
+<div class="modal wide" style="max-width:780px">
+  <div class="m-hdr"><h3 data-i18n="ws.title">📂 Workspace 文件</h3><button class="m-close" onclick="closeModal('wsModal')">✕</button></div>
+  <div class="m-body" id="wsContent" style="max-height:70vh;overflow-y:auto"></div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('wsModal')" data-i18n="btn.cancel">关闭</button></div>
+</div></div>
+
+<!-- Toast -->
+<div id="toast" style="position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px"></div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────
+const I18N = {
+  zh: {
+    'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 模型','tab.auth':'🔑 认证',
+    'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
+    'agents.title':'Agents','agents.new':'＋ 新建 Subagent',
+    'channels.title':'Channel 绑定','channels.add':'＋ 添加绑定','channels.hint':'管理 Agent 与频道/群组的绑定关系。绑定顺序决定优先级。',
+    'models.title':'模型管理','models.primary':'默认主模型','models.fallback':'Fallback 链',
+    'models.hint':'模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。',
+    'auth.title':'认证配置','auth.configured':'已配置认证',
+    'auth.guide':'点击 Provider 查看认证步骤。认证需在终端完成，或使用下方 CLI 终端。',
+    'auth.step1':'1. 获取 API Key','auth.step2':'2. 在终端运行以下命令','auth.step3':'3. 按提示粘贴 API Key 并回车',
+    'auth.onboard':'完成认证后，运行 openclaw onboard 注册可用模型',
+    'stats.title':'使用统计','stats.input':'输入 Token','stats.output':'输出 Token',
+    'stats.cost':'估计成本','stats.requests':'请求数','stats.byModel':'按模型','stats.byDay':'按日期','stats.noData':'暂无数据（日志为空或无 Token 记录）',
+    'cron.title':'计划任务','cron.add':'＋ 添加任务','cron.hint':'管理与 OpenClaw 相关的 crontab 计划任务。',
+    'cron.addTitle':'添加计划任务','cron.schedule':'Cron 表达式','cron.command':'命令','cron.label':'标签',
+    'cron.enabled':'启用','cron.disabled':'已禁用','cron.run':'▶ 运行','cron.edit':'编辑','cron.empty':'暂无 OpenClaw 相关的计划任务',
+    'ws.title':'📂 Workspace 文件','ws.edit':'✏️ 编辑','ws.save':'💾 保存','ws.cancel':'取消编辑','ws.saved':'文件已保存','ws.large':'（文件过大，无法预览）',
+    'menu.ops':'操作','menu.restart':'重启 Gateway','menu.logs':'实时日志','menu.backup':'手动备份配置',
+    'menu.rollback':'查看备份 / 回滚','menu.nas':'NAS 备份设置','menu.doctor':'健康检查',
+    'menu.opendir':'打开配置目录','menu.switchdir':'切换 OpenClaw 目录',
+    'btn.save':'保存','btn.delete':'删除','btn.cancel':'取消','btn.add':'添加','btn.remove':'移除',
+    'agents.empty':'暂无 Agent','agents.main':'主 Agent','agents.bound':'已绑群',
+    'agents.saveModel':'保存模型','agents.viewFiles':'查看文件',
+    'agents.defaultModel':'使用全局默认','agents.custom':'自定义','agents.noModel':'默认',
+    'channels.empty':'暂无绑定配置','channels.matchAll':'📡 匹配所有',
+    'channels.bindIdx':'绑定索引: #','channels.delBinding':'删除绑定',
+    'banner.modified':'配置已修改，建议重启 Gateway 以确保生效。',
+    'banner.restart':'立即重启','banner.later':'稍后','banner.dismiss':'忽略',
+    'floating.restart':'重启 Gateway',
+    'wiz.title':'新建 Subagent',
+    'l.sub':'选择运行模式',
+    'cli.open':'⌨️ 终端','cli.title':'⌨️ CLI 终端','cli.clear':'清空','cli.collapse':'▼ 收起',
+    'cli.ready':'── 终端就绪，等待命令 ──','cli.cleared':'── 已清空 ──',
+    'cli.presets':'── 常用命令 ──','cli.builtins':'内置命令','cli.favs':'我的收藏',
+    'cli.run':'▶ 执行','cli.stop':'■ 停止','cli.star':'⭐','cli.manage':'管理',
+    'cli.placeholder':'输入命令（如 openclaw doctor）',
+    'cli.favprompt':'给这条命令起个名字（留空则使用命令本身）：',
+    'cli.fav.dup':'该命令已在收藏里了','cli.fav.empty':'请先输入命令',
+    'cli.fav.saved':'已收藏','cli.manage.title':'管理收藏命令',
+    'nas.title':'🌐 远端备份',
+    'nas.host':'主机 / IP','nas.user':'用户名','nas.authLabel':'认证方式',
+    'nas.authPw':'密码','nas.pwLabel':'密码','nas.pwHint':'不存储，仅用于本次操作',
+    'nas.keyLabel':'SSH Key 路径','nas.genKey':'生成 Key',
+    'nas.pubkeyHint':'公钥（复制到 NAS 的 authorized_keys）:',
+    'nas.remotePath':'远端备份路径',
+    'nas.compat':'兼容模式（添加旧版 SSH 加密方案，适用于旧款 NAS / 旧服务器）',
+    'nas.content':'备份内容','nas.full':'全量（整个 .openclaw）',
+    'nas.essential':'仅重要数据（配置+Key+记忆，无日志/历史）',
+    'nas.btnTest':'🔌 测试连接','nas.btnNow':'💾 立即备份',
+    'nas.btnCron':'⏰ 定时备份','nas.btnClose':'关闭',
+    'nas.cronTime':'每日备份时间','nas.btnSaveCron':'💾 保存定时计划',
+    'nas.testing':'连接测试中...','nas.testOk':'✅ 连接成功','nas.testFail':'❌ 连接失败: ',
+    'nas.backing':'备份中，请稍候...','nas.backupOk':'✅ 备份完成: ','nas.backupFail':'❌ 备份失败: ',
+    'nas.keyGenOk':'SSH Key 已生成','nas.keyGenFail':'生成失败: ',
+    'nas.cronOk':'✅ 定时备份已设置 ','nas.cronToast':'定时备份已配置',
+    'nas.backupToast':'NAS 备份完成','nas.errNoHost':'请填写主机和用户名',
+  },
+  en: {
+    'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 Models','tab.auth':'🔑 Auth',
+    'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
+    'agents.title':'Agents','agents.new':'＋ New Subagent',
+    'channels.title':'Channel Bindings','channels.add':'＋ Add Binding','channels.hint':'Manage Agent to channel/group bindings. Order determines priority.',
+    'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
+    'models.hint':'Models are registered via openclaw onboard. Manage primary model and fallback chain here.',
+    'auth.title':'Auth Config','auth.configured':'Configured Auth',
+    'auth.guide':'Click a Provider for setup instructions. Auth is done in terminal or via the CLI panel below.',
+    'auth.step1':'1. Get API Key','auth.step2':'2. Run the command below in terminal','auth.step3':'3. Paste your API Key when prompted',
+    'auth.onboard':'After auth, run openclaw onboard to register available models',
+    'stats.title':'Usage Stats','stats.input':'Input Tokens','stats.output':'Output Tokens',
+    'stats.cost':'Estimated Cost','stats.requests':'Requests','stats.byModel':'By Model','stats.byDay':'By Day','stats.noData':'No data (log empty or no token records)',
+    'cron.title':'Scheduled Tasks','cron.add':'＋ Add Task','cron.hint':'Manage OpenClaw-related crontab scheduled tasks.',
+    'cron.addTitle':'Add Scheduled Task','cron.schedule':'Cron Expression','cron.command':'Command','cron.label':'Label',
+    'cron.enabled':'Enabled','cron.disabled':'Disabled','cron.run':'▶ Run','cron.edit':'Edit','cron.empty':'No OpenClaw-related cron tasks',
+    'ws.title':'📂 Workspace Files','ws.edit':'✏️ Edit','ws.save':'💾 Save','ws.cancel':'Cancel Edit','ws.saved':'File saved','ws.large':'(File too large to preview)',
+    'menu.ops':'Actions','menu.restart':'Restart Gateway','menu.logs':'Live Logs','menu.backup':'Manual Backup',
+    'menu.rollback':'Backups / Rollback','menu.nas':'NAS Backup Setup','menu.doctor':'Health Check',
+    'menu.opendir':'Open Config Dir','menu.switchdir':'Switch OpenClaw Dir',
+    'btn.save':'Save','btn.delete':'Delete','btn.cancel':'Cancel','btn.add':'Add','btn.remove':'Remove',
+    'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
+    'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
+    'agents.defaultModel':'Use Global Default','agents.custom':'custom','agents.noModel':'Default',
+    'channels.empty':'No bindings configured','channels.matchAll':'📡 Match All',
+    'channels.bindIdx':'Binding Index: #','channels.delBinding':'Remove Binding',
+    'banner.modified':'Config modified. Restart Gateway to apply changes.',
+    'banner.restart':'Restart Now','banner.later':'Later','banner.dismiss':'Dismiss',
+    'floating.restart':'Restart Gateway',
+    'wiz.title':'New Subagent',
+    'l.sub':'Select Mode',
+    'cli.open':'⌨️ Terminal','cli.title':'⌨️ CLI Terminal','cli.clear':'Clear','cli.collapse':'▼ Collapse',
+    'cli.ready':'── Terminal Ready ──','cli.cleared':'── Cleared ──',
+    'cli.presets':'── Presets ──','cli.builtins':'Built-in','cli.favs':'My Favorites',
+    'cli.run':'▶ Run','cli.stop':'■ Stop','cli.star':'⭐','cli.manage':'Manage',
+    'cli.placeholder':'Enter command (e.g. openclaw doctor)',
+    'cli.favprompt':'Name for this command (leave blank to use the command itself):',
+    'cli.fav.dup':'Command already in favorites','cli.fav.empty':'Please enter a command first',
+    'cli.fav.saved':'Saved','cli.manage.title':'Manage Saved Commands',
+    'nas.title':'🌐 Remote Backup',
+    'nas.host':'Host / IP','nas.user':'Username','nas.authLabel':'Auth Method',
+    'nas.authPw':'Password','nas.pwLabel':'Password','nas.pwHint':'Not stored, used for this operation only',
+    'nas.keyLabel':'SSH Key Path','nas.genKey':'Generate Key',
+    'nas.pubkeyHint':'Public key (copy to NAS authorized_keys):',
+    'nas.remotePath':'Remote Backup Path',
+    'nas.compat':'Compatibility Mode (add legacy SSH ciphers — for old NAS / servers)',
+    'nas.content':'Backup Content','nas.full':'Full (~entire .openclaw)',
+    'nas.essential':'Essential (config+keys+memory, no logs/history)',
+    'nas.btnTest':'🔌 Test Connection','nas.btnNow':'💾 Backup Now',
+    'nas.btnCron':'⏰ Schedule','nas.btnClose':'Close',
+    'nas.cronTime':'Daily Backup Time','nas.btnSaveCron':'💾 Save Schedule',
+    'nas.testing':'Testing connection...','nas.testOk':'✅ Connected','nas.testFail':'❌ Connection failed: ',
+    'nas.backing':'Backing up, please wait...','nas.backupOk':'✅ Backup complete: ','nas.backupFail':'❌ Backup failed: ',
+    'nas.keyGenOk':'SSH key generated','nas.keyGenFail':'Key generation failed: ',
+    'nas.cronOk':'✅ Schedule saved ','nas.cronToast':'Scheduled backup configured',
+    'nas.backupToast':'NAS backup complete','nas.errNoHost':'Please enter host and username',
+  },
+};
+// 安全 localStorage 工具（提前定义，防止隐私模式 / 存储禁用时整页崩溃）
+const LS = {
+  get(k, def='') { try { return localStorage.getItem(k) ?? def; } catch(e) { return def; } },
+  set(k, v)      { try { localStorage.setItem(k, v); } catch(e) {} },
+  del(k)         { try { localStorage.removeItem(k); } catch(e) {} },
+};
+let lang = LS.get('ocm_lang', 'zh');
+function t(k) { return I18N[lang][k] || I18N.zh[k] || k; }
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  const ltb = document.getElementById('langToggleBtn');
+  if(ltb) ltb.textContent = lang === 'zh' ? 'EN' : 'ZH';
+  // Update CLI elements that need JS-side refresh
+  const ci=document.getElementById('cliInput');
+  if(ci) ci.placeholder=t('cli.placeholder');
+  const rm=document.getElementById('cliReadyMsg');
+  if(rm) rm.textContent=t('cli.ready');
+  // Re-render model/auth cards so Remove button text updates
+  try{ renderModels(); }catch(_){}
+  try{ renderAuth(); }catch(_){}
+  // Rebuild presets dropdown if CLI is open
+  if(document.getElementById('cliPanel')&&document.getElementById('cliPanel').classList.contains('open')){
+    buildCliPresets();
+  }
+}
+function toggleLang() {
+  lang = lang === 'zh' ? 'en' : 'zh';
+  LS.set('ocm_lang', lang);
+  applyLang();
+}
+
+// ── Landing Page ──────────────────────────────────────────────
+const LANDING_TEXT = {
+  zh: {
+    sub: '选择运行模式',
+    activeBadge: '可用', soonBadge: '敬请期待',
+    subTitle: 'Sub-agent 模式',
+    subDesc: '通过主 Bot 账号绑定多个子 Agent 到不同群组，共用同一个 Token。',
+    subReqs: '<strong>需要：</strong><br>• Telegram Bot Token（主账号）<br>• 各群组的 Group ID<br>• 已安装 OpenClaw',
+    multiTitle: 'Multi-agent 模式',
+    multiDesc: '为每个场景创建完全独立的 Bot，彻底隔离配置与对话历史。',
+    multiReqs: '<strong>需要：</strong><br>• 每个 Bot 独立的 Token<br>• 独立的 OpenClaw 配置目录<br>• 独立的服务器进程',
+    enterBtn: '进入 Sub-agent 模式 →',
+  },
+  en: {
+    sub: 'Select Mode',
+    activeBadge: 'Available', soonBadge: 'Coming Soon',
+    subTitle: 'Sub-agent Mode',
+    subDesc: 'Bind multiple sub-agents to different groups using one main Bot Token.',
+    subReqs: '<strong>Requires:</strong><br>• Telegram Bot Token (main)<br>• Group IDs for each group<br>• OpenClaw installed',
+    multiTitle: 'Multi-agent Mode',
+    multiDesc: 'Create fully isolated bots for each scenario with separate configs.',
+    multiReqs: '<strong>Requires:</strong><br>• Individual Token per bot<br>• Separate OpenClaw config dir<br>• Separate server process',
+    enterBtn: 'Enter Sub-agent Mode →',
+  },
+};
+let landingLang = LS.get('ocm_lang', 'zh');
+function setLandingLang(l) {
+  try {
+    landingLang = l;
+    lang = l;
+    LS.set('ocm_lang', l);
+    document.getElementById('lbtn-zh').className = 'lang-btn' + (l === 'zh' ? ' active' : '');
+    document.getElementById('lbtn-en').className = 'lang-btn' + (l === 'en' ? ' active' : '');
+    const tx = LANDING_TEXT[l] || LANDING_TEXT.zh;
+    document.getElementById('l-sub').textContent = tx.sub;
+    document.getElementById('l-active-badge').textContent = tx.activeBadge;
+    document.getElementById('l-soon-badge').textContent = tx.soonBadge;
+    document.getElementById('l-sub-title').textContent = tx.subTitle;
+    document.getElementById('l-sub-desc').textContent = tx.subDesc;
+    document.getElementById('l-sub-reqs').innerHTML = tx.subReqs;
+    document.getElementById('l-multi-title').textContent = tx.multiTitle;
+    document.getElementById('l-multi-desc').textContent = tx.multiDesc;
+    document.getElementById('l-multi-reqs').innerHTML = tx.multiReqs;
+  } catch(e) { console.error('setLandingLang error:', e); }
+}
+function enterApp() {
+  try {
+    document.getElementById('landingPage').style.display = 'none';
+    document.getElementById('mainApp').style.display = '';
+    applyLang();
+    checkStatus().then(() => loadAll());
+    startHealthPolling();
+  } catch(e) {
+    console.error('enterApp error:', e);
+    const lp = document.getElementById('landingPage');
+    const ma = document.getElementById('mainApp');
+    if(lp) lp.style.display = 'none';
+    if(ma) ma.style.display = '';
+    checkStatus().then(() => loadAll()).catch(console.error);
+  }
+}
+function backToLanding() {
+  document.getElementById('landingPage').style.display = 'flex';
+  document.getElementById('mainApp').style.display = 'none';
+}
+
+// On load: always show landing page（清除可能残留的旧 ocm_mode 值）
+(function() {
+  LS.del('ocm_mode');
+  try { setLandingLang(landingLang); } catch(e) { console.error('Landing init error:', e); }
+})();
+
+// ── 全局状态 ────────────────────────────────────────────────
+let S = { agents:[], channels:[], models:{}, authProfiles:{}, knownModels:[], authProviders:[], primaryModel:'', fallbacks:[] };
+let wizCur = 1;
+let logTimer = null;
+let selectedAuthProv = null;
+
+// ── 初始化（enterApp 触发） ─────────────────────────────────
+async function checkStatus(){
+  try{
+    const r = await api('GET','/api/status');
+    if(r.needsSetup){ location.reload(); return; }
+    setDot('ok');
+    document.getElementById('statusTxt').textContent = r.dir.replace(/.*[/\\\\]/,'.../')+' · v'+r.version;
+    document.getElementById('versionBadge').textContent = 'v'+r.version;
+  }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
+}
+
+async function loadAll(){ await Promise.all([loadAgents(), loadModels(), loadChannels()]); }
+let healthTimer=null;
+async function refreshHealth(){
+  try{
+    const r=await api('GET','/api/health');
+    const badge=document.getElementById('healthBadge');
+    const icon=document.getElementById('healthIcon');
+    const cnt=document.getElementById('healthCount');
+    const tip=document.getElementById('healthTooltip');
+    if(!badge)return;
+    if(!r.issues||r.issues.length===0){
+      badge.className=''; badge.style.display='none'; return;
+    }
+    const errors=r.issues.filter(i=>i.level==='error').length;
+    const warns=r.issues.filter(i=>i.level==='warn').length;
+    badge.style.display='flex';
+    badge.className=errors>0?'error':'warn';
+    icon.textContent=errors>0?'🔴':'🟡';
+    cnt.textContent=r.issues.length+(lang==='en'?' issue(s)':' 个问题');
+    tip.textContent=r.issues.map(i=>(i.level==='error'?'❌ ':'⚠️ ')+i.text).join('\\n');
+  }catch(_){}
+}
+function startHealthPolling(){
+  refreshHealth();
+  if(healthTimer) clearInterval(healthTimer);
+  healthTimer=setInterval(refreshHealth,60000);
+}
+
+
+async function loadAgents(){
+  try{ const r=await api('GET','/api/agents'); S.agents=r.agents||[]; renderAgents(); }
+  catch(e){ toast('加载 Agent 失败: '+e.message,'error'); }
+}
+
+async function loadModels(){
+  try{
+    const r=await api('GET','/api/models');
+    S.models=r.models||{}; S.authProfiles=r.authProfiles||{};
+    S.knownModels=r.knownModels||[]; S.authProviders=r.authProviders||[];
+    S.primaryModel=r.primaryModel||''; S.fallbacks=r.fallbacks||[];
+    renderModels(); renderAuth(); buildModelDropdowns();
+  }catch(e){ toast('加载模型失败: '+e.message,'error'); }
+}
+
+async function loadChannels(){
+  try{ const r=await api('GET','/api/channels'); S.channels=r.channels||[]; renderChannels(); }
+  catch(e){ toast('加载 Channel 失败: '+e.message,'error'); }
+}
+
+// ── 渲染 Agents ─────────────────────────────────────────────
+function renderAgents(){
+  const el=document.getElementById('agentList');
+  if(!S.agents.length){el.innerHTML='<div class="empty">'+t('agents.empty')+'</div>';return;}
+  el.innerHTML=S.agents.map(a=>{
+    const isMain=a.id==='main';
+    const selOpts=buildModelOpts(a.effectiveModel!=='默认'?a.effectiveModel:'__default__');
+    return \`<div class="card">
+      <div class="card-row">
+        <span class="card-title">\${esc(a.name||a.id)}</span>
+        <span class="badge \${isMain?'main':''}">\${isMain?t('agents.main'):'subagent'}</span>
+        \${a.groupId?'<span class="badge ok">'+t('agents.bound')+'</span>':''}
+      </div>
+      \${a.groupId?\`<div class="card-meta">📱 \${esc(a.groupId)}</div>\`:''}
+      <div class="card-meta">🧠 <span id="eml-\${a.id}">\${esc(a.effectiveModel)}</span></div>
+      \${a.workspace?\`<div class="card-meta" style="font-size:11px">📁 \${esc(a.workspace)}</div>\`:''}
+      <div class="card-actions">
+        <select class="inline-sel" id="msel-\${a.id}" onchange="">\${selOpts}</select>
+        <button class="btn-secondary" onclick="saveAgentModel('\${a.id}')">\${t('agents.saveModel')}</button>
+        \${!isMain?\`<button class="btn-secondary" onclick="viewWorkspace('\${a.id}')">\${t('agents.viewFiles')}</button>
+        <button class="btn-danger" onclick="deleteAgent('\${a.id}','\${esc(a.name||a.id)}')">\${t('btn.delete')}</button>\`:''}
+      </div>
+    </div>\`;
+  }).join('');
+}
+
+function buildModelOpts(selected){
+  let opts=\`<option value="__default__"\${selected==='__default__'?' selected':''}>\${t('agents.defaultModel')}</option>\`;
+  let lastGroup='';
+  S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
+    if(m.group && m.group!==lastGroup){
+      if(lastGroup) opts+=\`</optgroup>\`;
+      opts+=\`<optgroup label="\${m.group}">\`;
+      lastGroup=m.group;
+    }
+    opts+=\`<option value="\${m.id}"\${selected===m.id?' selected':''}>\${m.label}</option>\`;
+  });
+  if(lastGroup) opts+=\`</optgroup>\`;
+  Object.keys(S.models).forEach(id=>{
+    if(!S.knownModels.find(k=>k.id===id))
+      opts+=\`<option value="\${id}"\${selected===id?' selected':''}>\${id} (\${t('agents.custom')})</option>\`;
+  });
+  return opts;
+}
+
+async function saveAgentModel(agentId){
+  const sel=document.getElementById('msel-'+agentId);
+  if(!sel)return;
+  const model=sel.value;
+  try{
+    await api('PUT','/api/agents/'+encodeURIComponent(agentId),{model});
+    document.getElementById('eml-'+agentId).textContent=model==='__default__'?t('agents.noModel')+' ('+S.primaryModel+')':model;
+    toast('模型已更新','success'); showRestartBanner();
+  }catch(e){toast('保存失败: '+e.message,'error');}
+}
+
+// ── 渲染 Channels ────────────────────────────────────────────
+function renderChannels(){
+  const el=document.getElementById('channelList');
+  if(!S.channels.length){el.innerHTML='<div class="empty">'+t('channels.empty')+'</div>';return;}
+  el.innerHTML=S.channels.map(ch=>{
+    const chClass=ch.channel==='telegram'?'ch-tg':'ch-any';
+    return \`<div class="card">
+      <div class="card-row">
+        <span class="card-title">\${esc(ch.agentName)}</span>
+        <span class="badge">agent: \${esc(ch.agentId)}</span>
+        \${ch.channel?\`<span class="ch-badge \${chClass}">\${esc(ch.channel)}</span>\`:'<span class="ch-badge ch-any">any</span>'}
+        \${ch.peerKind?\`<span class="badge">\${esc(ch.peerKind)}</span>\`:''}
+      </div>
+      \${ch.peerId?\`<div class="card-meta">📱 Peer ID: <code>\${esc(ch.peerId)}</code></div>\`:('<div class="card-meta">'+t('channels.matchAll')+'</div>')}
+      <div class="card-meta" style="font-size:11px">\${t('channels.bindIdx')}\${ch.idx}</div>
+      <div class="card-actions">
+        <button class="btn-danger" onclick="deleteChannel(\${ch.idx},'#\${ch.idx} \${esc(ch.agentId)}')">\${t('channels.delBinding')}</button>
+      </div>
+    </div>\`;
+  }).join('');
+}
+
+function openAddChannel(){
+  const sel=document.getElementById('ch-agent');
+  sel.innerHTML=''; S.agents.forEach(a=>{ sel.innerHTML+=\`<option value="\${a.id}">\${esc(a.name||a.id)}</option>\`; });
+  document.getElementById('ch-peerId').value='';
+  openModal('addChannelModal');
+}
+
+async function submitAddChannel(){
+  const agentId=document.getElementById('ch-agent').value;
+  const channel=document.getElementById('ch-channel').value;
+  const peerKind=document.getElementById('ch-peerKind').value;
+  const peerId=document.getElementById('ch-peerId').value.trim();
+  if(!agentId){toast('请选择 Agent','error');return;}
+  try{
+    await api('POST','/api/channels',{agentId,channel,peerKind,peerId});
+    toast('绑定已添加','success'); closeModal('addChannelModal'); await loadChannels(); showRestartBanner();
+  }catch(e){toast('失败: '+e.message,'error');}
+}
+
+async function deleteChannel(idx,label){
+  if(!confirm(\`确定要删除绑定 "\${label}"？\`))return;
+  try{
+    await api('DELETE','/api/channels/'+idx);
+    toast('绑定已删除','success'); await loadChannels(); showRestartBanner();
+  }catch(e){toast('失败: '+e.message,'error');}
+}
+
+// ── 渲染模型 ─────────────────────────────────────────────────
+function renderModels(){
+  // 检测 primary model 是否是 API Key（显示修复警告）
+  const primWarn=document.getElementById('primaryModelWarn');
+  if(primWarn){
+    const bad = S.primaryModel && !isValidModelId(S.primaryModel);
+    primWarn.style.display = bad ? '' : 'none';
+    if(bad){
+      const masked = S.primaryModel.length > 16
+        ? S.primaryModel.slice(0,8)+'...'+ S.primaryModel.slice(-4)
+        : S.primaryModel;
+      primWarn.innerHTML=\`⚠️ <strong>当前主模型设置异常</strong>：检测到 <code>\${esc(masked)}</code> 像是 API Key 而非模型 ID。
+        请从下拉选择正确的模型并保存，或点击下方按钮重置。<br>
+        <span style="font-size:11px;color:var(--muted)">提示：模型 ID 格式为 provider/model-name，例如 anthropic/claude-sonnet-4-5</span><br>
+        <button class="btn-danger" style="margin-top:8px;font-size:12px" onclick="fixBadPrimaryModel()">🔧 一键重置主模型</button>\`;
+    }
+  }
+  const pSel=document.getElementById('primaryModelSel');
+  pSel.innerHTML='';
+  S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
+    pSel.innerHTML+=\`<option value="\${m.id}"\${S.primaryModel===m.id?' selected':''}>\${m.label}</option>\`;
+  });
+  const fl=document.getElementById('fallbackList');
+  fl.innerHTML=S.fallbacks.length
+    ? S.fallbacks.map((f,i)=>\`<span class="tag">\${esc(f)} <span class="tag-del" onclick="removeFallback(\${i})">✕</span></span>\`).join('')
+    : '<span style="font-size:12px;color:var(--muted)">'+(lang==='en'?'(empty)':'（空）')+'</span>';
+}
+
+function isValidModelId(id) {
+  // Must be in format provider/model-id, no spaces, not an API key
+  if (!id) return false;
+  if (!id.includes('/')) return false;
+  if (id.length > 120) return false;
+  // Reject obvious API keys (long alphanumeric strings, or starts with sk-, gsk_, etc.)
+  if (/^(sk-|gsk_|pplx-|sess-|ghp_|github_pat_)/.test(id)) return false;
+  // Must only contain provider/model valid chars
+  if (!/^[a-zA-Z0-9_./-]+$/.test(id)) return false;
+  return true;
+}
+async function savePrimaryModel(){
+  const custom=document.getElementById('primaryModelCustom').value.trim();
+  const sel   =document.getElementById('primaryModelSel').value;
+  const model = custom || sel;
+  if(!model){toast('请选择或填写模型','error');return;}
+  if(custom && !isValidModelId(custom)){
+    toast('格式错误：模型 ID 应为 provider/model-id（例：anthropic/claude-sonnet-4-5），请勿在此粘贴 API Key。','error');
+    return;
+  }
+  try{
+    await api('PUT','/api/models/settings',{primaryModel:model, fallbacks:S.fallbacks});
+    S.primaryModel=model; toast('主模型已保存','success'); showRestartBanner();
+    document.getElementById('primaryModelCustom').value='';
+    renderModels();
+  }catch(e){toast('失败: '+e.message,'error');}
+}
+
+// 修复被错误设置为 API Key 的主模型 → 重置为第一个已注册模型或留空
+async function fixBadPrimaryModel(){
+  // 尝试从已注册模型中取第一个可用 ID
+  const firstModel = Object.keys(S.models||{}).find(k => isValidModelId(k));
+  const resetTo = firstModel || '';
+  if(!confirm(\`将主模型重置为"\${resetTo||'（清空，使用全局默认）'}"？\`)) return;
+  try{
+    await api('PUT','/api/models/settings',{primaryModel:resetTo, fallbacks:S.fallbacks});
+    S.primaryModel=resetTo;
+    toast(\`主模型已重置\${resetTo?' 为 '+resetTo:''}\`,'success');
+    showRestartBanner(); renderModels();
+  }catch(e){toast('重置失败: '+e.message,'error');}
+}
+
+function openAddFallback(){
+  buildFbDropdown();
+  // 显示当前 fallback 列表
+  const curEl=document.getElementById('fb-current-list');
+  if(curEl){
+    if(S.fallbacks.length){
+      curEl.innerHTML='当前 Fallback 链：'+S.fallbacks.map((f,i)=>\`<code style="margin-right:4px">\${i+1}. \${esc(f)}</code>\`).join('');
+    }else{
+      curEl.innerHTML='当前尚未配置 Fallback';
+    }
+  }
+  document.getElementById('fb-custom').value='';
+  document.getElementById('fb-sel').value='';
+  openModal('addFallbackModal');
+}
+function buildFbDropdown(){
+  const sel=document.getElementById('fb-sel');
+  sel.innerHTML='<option value="">── 从内置列表选择 ──</option>';
+  // 按 group 分组显示
+  const groups={};
+  S.knownModels.filter(m=>m.id!=='__default__'&&!S.fallbacks.includes(m.id)).forEach(m=>{
+    const g=m.group||'其他';
+    if(!groups[g]) groups[g]=[];
+    groups[g].push(m);
+  });
+  Object.entries(groups).forEach(([g,items])=>{
+    const og=document.createElement('optgroup');
+    og.label=g;
+    items.forEach(m=>{ const o=document.createElement('option'); o.value=m.id; o.textContent=m.label; og.appendChild(o); });
+    sel.appendChild(og);
+  });
+}
+function onFbSelChange(){ const v=document.getElementById('fb-sel').value; if(v) document.getElementById('fb-custom').value=''; }
+function onFbCustomInput(){ const v=document.getElementById('fb-custom').value.trim(); if(v) document.getElementById('fb-sel').value=''; }
+async function addFallback(){
+  const custom=document.getElementById('fb-custom').value.trim();
+  const sel   =document.getElementById('fb-sel').value;
+  const model = custom || sel;
+  if(!model){toast('请输入或选择模型 ID','error');return;}
+  if(!isValidModelId(model)){
+    toast('格式错误：模型 ID 应为 provider/model-id（例：deepseek/deepseek-v3），请勿粘贴 API Key。','error');
+    return;
+  }
+  if(S.fallbacks.includes(model)){toast('该模型已在 Fallback 链中','error');return;}
+  S.fallbacks.push(model);
+  try{
+    await api('PUT','/api/models/settings',{primaryModel:S.primaryModel, fallbacks:S.fallbacks});
+    closeModal('addFallbackModal'); renderModels(); showRestartBanner();
+  }catch(e){ S.fallbacks.pop(); toast('失败: '+e.message,'error'); }
+}
+async function removeFallback(i){
+  const removed=S.fallbacks.splice(i,1);
+  try{
+    await api('PUT','/api/models/settings',{primaryModel:S.primaryModel, fallbacks:S.fallbacks});
+    renderModels(); showRestartBanner();
+  }catch(e){ S.fallbacks.splice(i,0,...removed); toast('失败: '+e.message,'error'); }
+}
+
+// ── 渲染认证（引导模式）─────────────────────────────────────
+function renderAuth(){
+  const grid=document.getElementById('authProvGrid');
+  // 标记已配置的 provider
+  const configured=new Set(Object.keys(S.authProfiles||{}).map(k=>k.toLowerCase()));
+  grid.innerHTML=S.authProviders.map(p=>{
+    const done=configured.has(p.id);
+    return \`<button class="auth-prov-btn\${selectedAuthProv===p.id?' selected':''}\${done?' configured':''}" onclick="selectAuthProv('\${p.id}')">
+      <div class="apb-name">\${done?'✅ ':''}\${esc(p.label)}</div>
+      <div class="apb-mode">\${p.mode==='oauth'?'OAuth':p.mode==='device'?'Device Flow':'API Token'}</div>
+    </button>\`;
+  }).join('');
+  // Configured list
+  const el=document.getElementById('authList');
+  const entries=Object.entries(S.authProfiles);
+  if(!entries.length){el.innerHTML='<div class="empty">'+(lang==='en'?'No auth configured':'暂无认证配置')+'</div>';return;}
+  el.innerHTML=entries.map(([key,p])=>\`<div class="card">
+    <div class="card-row">
+      <span class="card-title">\${esc(key)}</span>
+      <span class="badge">\${p.mode||'token'}</span>
+    </div>
+    \${p.email?\`<div class="card-meta">📧 \${esc(p.email)}</div>\`:''}
+    <div class="card-actions">
+      <button class="btn-danger" onclick="deleteAuth('\${esc(key)}')">\${t('btn.remove')}</button>
+    </div>
+  </div>\`).join('');
+}
+
+function selectAuthProv(pid){
+  selectedAuthProv=pid;
+  const provider=S.authProviders.find(p=>p.id===pid);
+  if(!provider)return;
+  renderAuth();
+  const card=document.getElementById('authActionCard');
+  const content=document.getElementById('authActionContent');
+  card.style.display='';
+  if(provider.mode==='oauth'){
+    content.innerHTML=\`
+      <p style="font-size:13px;font-weight:600;margin-bottom:10px">\${esc(provider.label)} — OAuth</p>
+      <div class="notes">
+        <strong>\${t('auth.step1')}</strong><br>
+        \${lang==='en'?'This provider uses browser-based OAuth.':'此 Provider 使用浏览器 OAuth 授权。'}<br><br>
+        <strong>\${t('auth.step2')}</strong><br>
+        <code>\${esc(provider.cliCmd)}</code>
+        <button class="copy-cmd-btn" onclick="copyText('\${esc(provider.cliCmd)}')">复制</button><br><br>
+        <strong>\${t('auth.onboard')}</strong><br>
+        <code>openclaw onboard</code>
+        <button class="copy-cmd-btn" onclick="copyText('openclaw onboard')">复制</button>
+      </div>\`;
+  } else if(provider.mode==='device'){
+    content.innerHTML=\`
+      <p style="font-size:13px;font-weight:600;margin-bottom:10px">\${esc(provider.label)} — Device Flow</p>
+      <div class="notes">
+        <strong>\${t('auth.step1')}</strong><br>
+        1. \${lang==='en'?'Run in terminal':'在终端运行'}：<code>\${esc(provider.cliCmd)}</code>
+        <button class="copy-cmd-btn" onclick="copyText('\${esc(provider.cliCmd)}')">复制</button><br>
+        2. \${lang==='en'?'Copy the 8-digit device code':'复制终端显示的 8 位设备码'}<br>
+        3. \${lang==='en'?'Open':'打开'}：<a href="https://github.com/login/device" target="_blank" style="color:var(--accent)">github.com/login/device</a><br>
+        4. \${lang==='en'?'Paste the code and authorize':'粘贴设备码并授权'}<br><br>
+        <strong>\${t('auth.onboard')}</strong><br>
+        <code>openclaw onboard</code>
+        <button class="copy-cmd-btn" onclick="copyText('openclaw onboard')">复制</button>
+      </div>\`;
+  } else {
+    content.innerHTML=\`
+      <p style="font-size:13px;font-weight:600;margin-bottom:10px">\${esc(provider.label)} — API Key</p>
+      <div class="notes">
+        <strong>\${t('auth.step1')}</strong><br>
+        \${esc(provider.hint||'')}<br><br>
+        <strong>\${t('auth.step2')}</strong><br>
+        <code>\${esc(provider.cliCmd)}</code>
+        <button class="copy-cmd-btn" onclick="copyText('\${esc(provider.cliCmd)}')">复制</button><br><br>
+        <strong>\${t('auth.step3')}</strong><br>
+        \${lang==='en'?'The key is stored securely by OpenClaw, not in config files.':'Key 由 OpenClaw 安全存储，不写入配置文件。'}<br><br>
+        <strong>\${t('auth.onboard')}</strong><br>
+        <code>openclaw onboard</code>
+        <button class="copy-cmd-btn" onclick="copyText('openclaw onboard')">复制</button>
+      </div>\`;
+  }
+}
+
+async function refreshAuthOnly(){
+  try{
+    const r=await api('GET','/api/models');
+    S.authProfiles=r.authProfiles||{};
+    S.models=r.models||{}; S.knownModels=r.knownModels||[];
+    renderAuth(); buildModelDropdowns();
+  }catch(e){ toast((lang==='en'?'Refresh failed: ':'刷新失败: ')+e.message,'error'); }
+}
+
+async function deleteAuth(key){
+  if(!confirm((lang==='en'?'Remove auth "':'移除认证配置 "')+key+'"？'))return;
+  try{await api('DELETE','/api/auth/'+encodeURIComponent(key)); toast(lang==='en'?'Removed':'已移除','success'); await refreshAuthOnly();}
+  catch(e){toast((lang==='en'?'Failed: ':'失败: ')+e.message,'error');}
+}
+
+function copyText(txt){
+  navigator.clipboard.writeText(txt).then(()=>toast('已复制','success')).catch(()=>toast('复制失败','error'));
+}
+
+// ── 向导: 新建 Agent ─────────────────────────────────────────
+function openCreateWizard(){
+  wizCur=1;
+  ['f-gid','f-aid','f-name','f-folder','f-purpose','f-soul','f-mem'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('createResult').innerHTML='';
+  buildWizModelSel(); updateWizUI(); openModal('createModal');
+}
+function buildWizModelSel(){
+  const sel=document.getElementById('f-model');
+  sel.innerHTML=\`<option value="__default__">使用全局默认 (\${S.primaryModel})</option>\`;
+  S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
+    sel.innerHTML+=\`<option value="\${m.id}">\${m.label}</option>\`;
+  });
+}
+function wizStep(d){
+  if(d===1){
+    if(!validateWizStep(wizCur))return;
+    if(wizCur===4){submitCreateAgent();return;}
+    wizCur++;
+    if(wizCur===4)buildPreview();
+  } else { wizCur=Math.max(1,wizCur-1); }
+  updateWizUI();
+}
+function updateWizUI(){
+  for(let i=1;i<=4;i++){
+    document.getElementById('sp'+i).className='step-page'+(i===wizCur?' active':'');
+    document.getElementById('si'+i).className='step'+(i===wizCur?' active':i<wizCur?' done':'');
+  }
+  document.getElementById('wBack').style.display=wizCur>1?'':'none';
+  document.getElementById('wNext').textContent=wizCur===4?'✅ 确认创建':'下一步 →';
+}
+function validateWizStep(step){
+  if(step!==1)return true;
+  let ok=true;
+  const gid=document.getElementById('f-gid').value.trim();
+  const aid=document.getElementById('f-aid').value.trim();
+  const ge=document.getElementById('e-gid'); const ae=document.getElementById('e-aid');
+  if(!gid){ge.textContent='请填写群组 ID';ok=false;}else ge.textContent='';
+  if(!aid){ae.textContent='请填写 Agent ID';ok=false;}
+  else if(!/^[a-zA-Z0-9_-]+$/.test(aid)){ae.textContent='只能含英文/数字/_ /-';ok=false;}
+  else if(aid.toLowerCase()==='main'){ae.textContent='"main" 是保留 ID';ok=false;}
+  else if(S.agents.find(a=>a.id===aid)){ae.textContent='该 ID 已存在';ok=false;}
+  else ae.textContent='';
+  return ok;
+}
+function autoFillId(){
+  const aid=document.getElementById('f-aid');
+  if(!aid.value){
+    const gid=document.getElementById('f-gid').value.replace(/[^0-9]/g,'').slice(-6);
+    if(gid) aid.value='agent_'+gid;
+  }
+}
+function validateId(){
+  const v=document.getElementById('f-aid').value;
+  const e=document.getElementById('e-aid');
+  if(!v){e.textContent='';return;}
+  if(!/^[a-zA-Z0-9_-]+$/.test(v)) e.textContent='只能含英文/数字/_ /-';
+  else if(v.toLowerCase()==='main') e.textContent='"main" 是保留 ID';
+  else e.textContent='';
+}
+function buildPreview(){
+  const aid=document.getElementById('f-aid').value.trim();
+  const name=document.getElementById('f-name').value.trim()||aid;
+  const gid=document.getElementById('f-gid').value.trim();
+  const folder=document.getElementById('f-folder').value.trim()||aid;
+  const model=document.getElementById('f-model').value;
+  const soul=document.getElementById('f-soul').value.trim();
+  document.getElementById('previewBox').innerHTML=\`
+    <strong>即将创建：</strong><br>
+    🤖 Agent: <code>\${aid}</code> (\${esc(name)})<br>
+    📱 群组: <code>\${gid}</code><br>
+    🧠 模型: \${model==='__default__'?'全局默认 ('+S.primaryModel+')':model}<br>
+    📁 Workspace: <code>~/.openclaw/workspaces/\${folder}</code><br><br>
+    <strong>SOUL.md：</strong> \${soul?'含性格关键词':'默认成长型提示词（推荐）'}<br>
+    自动备份当前 openclaw.json ✓
+  \`;
+}
+async function submitCreateAgent(){
+  const btn=document.getElementById('wNext');
+  btn.disabled=true; btn.textContent='创建中...';
+  try{
+    const r=await api('POST','/api/agents',{
+      agentId:document.getElementById('f-aid').value.trim(),
+      displayName:document.getElementById('f-name').value.trim(),
+      groupId:document.getElementById('f-gid').value.trim(),
+      workspaceFolder:document.getElementById('f-folder').value.trim(),
+      model:document.getElementById('f-model').value,
+      purpose:document.getElementById('f-purpose').value.trim(),
+      personality:document.getElementById('f-soul').value.trim(),
+      initialMemory:document.getElementById('f-mem').value.trim(),
+    });
+    document.getElementById('createResult').innerHTML=
+      \`<div class="notes"><ul>\${r.notes.map(n=>\`<li>\${n}</li>\`).join('')}</ul></div>\`;
+    btn.textContent='✅ 已创建'; btn.disabled=false;
+    await loadAgents(); await loadChannels(); showRestartBanner();
+    setTimeout(()=>closeModal('createModal'),3500);
+    toast('Subagent '+r.agentId+' 创建成功！','success');
+  }catch(e){toast('创建失败: '+e.message,'error'); btn.disabled=false; btn.textContent='✅ 确认创建';}
+}
+
+async function deleteAgent(agentId, name){
+  if(!confirm(\`确定要删除 Agent "\${name}"？\\n\\n• 将从 openclaw.json 移除（自动备份）\\n• Workspace 目录不删除\\n• 可通过"回滚"功能恢复配置\\n\\n继续？\`))return;
+  try{
+    const r=await api('DELETE','/api/agents/'+encodeURIComponent(agentId));
+    toast('已删除 '+agentId,'success');
+    await loadAgents(); await loadChannels(); showRestartBanner();
+  }catch(e){toast('删除失败: '+e.message,'error');}
+}
+
+let wsCurrentAgent='';
+async function viewWorkspace(agentId){
+  wsCurrentAgent=agentId;
+  const el=document.getElementById('wsContent');
+  el.innerHTML='<div class="empty">'+(lang==='en'?'Loading...':'加载中...')+'</div>'; openModal('wsModal');
+  try{
+    const r=await api('GET','/api/workspace/'+encodeURIComponent(agentId));
+    const fileNames=Object.keys(r.files);
+    if(!fileNames.length){ el.innerHTML='<div class="empty">'+(lang==='en'?'No files':'暂无文件')+'</div>'; return; }
+    el.innerHTML='<p class="hint-text" style="margin-bottom:14px">📁 '+esc(r.workspacePath)+'</p>'
+      +fileNames.map(name=>{
+        const content=r.files[name];
+        const st=r.fileStats&&r.fileStats[name]?r.fileStats[name]:{};
+        const sizeStr=st.size!=null?(st.size<1024?st.size+' B':(st.size/1024).toFixed(1)+' KB'):'';
+        const mtimeStr=st.mtime?new Date(st.mtime).toLocaleString():'';
+        const fid='wsf-'+name.replace(/[^a-zA-Z0-9]/g,'_');
+        return \`<div style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="display:flex;align-items:center;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border)">
+            <span style="font-size:13px;font-weight:600;color:var(--accent);flex:1">\${esc(name)}</span>
+            <span style="font-size:11px;color:var(--muted);margin-right:10px">\${esc(sizeStr)}\${mtimeStr?' · '+esc(mtimeStr):''}</span>
+            \${content!==null?\`<button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="wsToggleEdit('\${esc(agentId)}','\${esc(name)}','\${fid}')" id="wsbtn-\${fid}">\${t('ws.edit')}</button>\`:''}
+          </div>
+          \${content!==null
+            ?\`<pre id="pre-\${fid}" style="margin:0;padding:12px 14px;font-size:11px;line-height:1.6;overflow:auto;white-space:pre-wrap;max-height:240px;background:var(--card);color:var(--text)">\${esc(content)}</pre>
+              <textarea id="ta-\${fid}" style="display:none;width:100%;box-sizing:border-box;border:none;padding:12px 14px;font-family:monospace;font-size:11px;line-height:1.6;height:240px;resize:vertical;background:var(--card);color:var(--text)">\${esc(content)}</textarea>
+              <div id="acts-\${fid}" style="display:none;padding:8px 14px;background:var(--bg);border-top:1px solid var(--border);display:none;gap:8px">
+                <button class="btn-primary" style="font-size:12px" onclick="wsSaveFile('\${esc(agentId)}','\${esc(name)}','\${fid}')">\${t('ws.save')}</button>
+                <button class="btn-secondary" style="font-size:12px" onclick="wsCancelEdit('\${fid}')">\${t('ws.cancel')}</button>
+              </div>\`
+            :\`<div style="padding:12px 14px;font-size:12px;color:var(--muted)">\${content===null&&st.size>512*1024?t('ws.large'):(lang==='en'?'(file not found)':'（文件不存在）')}</div>\`}
+        </div>\`;
+      }).join('');
+  }catch(e){el.innerHTML='<div class="empty">'+(lang==='en'?'Failed: ':'加载失败: ')+e.message+'</div>';}
+}
+function wsToggleEdit(agentId,fname,fid){
+  const pre=document.getElementById('pre-'+fid);
+  const ta=document.getElementById('ta-'+fid);
+  const acts=document.getElementById('acts-'+fid);
+  const btn=document.getElementById('wsbtn-'+fid);
+  if(ta.style.display==='none'){
+    ta.style.display=''; pre.style.display='none'; acts.style.display='flex';
+    btn.textContent=t('ws.cancel'); ta.focus();
+  } else { wsCancelEdit(fid); }
+}
+function wsCancelEdit(fid){
+  const pre=document.getElementById('pre-'+fid);
+  const ta=document.getElementById('ta-'+fid);
+  const acts=document.getElementById('acts-'+fid);
+  const btn=document.getElementById('wsbtn-'+fid);
+  ta.style.display='none'; pre.style.display=''; acts.style.display='none';
+  if(btn) btn.textContent=t('ws.edit');
+  // revert textarea to pre content
+  ta.value=pre.textContent;
+}
+async function wsSaveFile(agentId,fname,fid){
+  const ta=document.getElementById('ta-'+fid);
+  try{
+    await api('PUT','/api/workspace/'+encodeURIComponent(agentId)+'/'+encodeURIComponent(fname),{content:ta.value});
+    toast(t('ws.saved'),'success');
+    // update pre with new content
+    const pre=document.getElementById('pre-'+fid);
+    pre.textContent=ta.value;
+    wsCancelEdit(fid);
+  }catch(e){toast((lang==='en'?'Save failed: ':'保存失败: ')+e.message,'error');}
+}
+
+function buildModelDropdowns(){
+  S.agents.forEach(a=>{
+    const sel=document.getElementById('msel-'+a.id);
+    if(!sel) return;
+    const current=a.effectiveModel!=='默认'?a.effectiveModel:'__default__';
+    sel.innerHTML=buildModelOpts(current);
+  });
+}
+
+// ── CLI 终端 ─────────────────────────────────────────────────
+const CLI_DEFAULTS = [
+  { label: 'openclaw doctor',              cmd: 'openclaw doctor' },
+  { label: 'openclaw --version',           cmd: 'openclaw --version' },
+  { label: 'openclaw gateway status',      cmd: 'openclaw gateway status' },
+  { label: 'openclaw gateway restart',     cmd: 'openclaw gateway restart' },
+  { label: 'openclaw gateway start',       cmd: 'openclaw gateway start' },
+  { label: 'openclaw gateway stop',        cmd: 'openclaw gateway stop' },
+  { label: 'openclaw gateway logs',        cmd: 'openclaw gateway logs' },
+  { label: 'openclaw models list',         cmd: 'openclaw models list' },
+  { label: 'openclaw models auth list',    cmd: 'openclaw models auth list' },
+  { label: 'openclaw agents list',         cmd: 'openclaw agents list' },
+  { label: 'openclaw agents sync',         cmd: 'openclaw agents sync' },
+  { label: 'openclaw backup create',       cmd: 'openclaw backup create' },
+  { label: 'openclaw backup list',         cmd: 'openclaw backup list' },
+  { label: 'openclaw config validate',     cmd: 'openclaw config validate' },
+  { label: 'openclaw update',              cmd: 'openclaw update' },
+];
+let cliHistory=[], cliHistIdx=-1, cliEvt=null;
+
+function buildCliPresets(){
+  const sel=document.getElementById('cliPreset');
+  const favs=JSON.parse(LS.get('ocm_cli_favs','[]'));
+  sel.innerHTML='<option value="">'+t('cli.presets')+'</option>';
+  const og1=document.createElement('optgroup'); og1.label=t('cli.builtins');
+  CLI_DEFAULTS.forEach(c=>{ const o=document.createElement('option'); o.value=c.cmd; o.textContent=c.label; og1.appendChild(o); });
+  sel.appendChild(og1);
+  if(favs.length){
+    const og2=document.createElement('optgroup'); og2.label=t('cli.favs');
+    favs.forEach(c=>{ const o=document.createElement('option'); o.value=c.cmd; o.textContent=(c.label||c.cmd); og2.appendChild(o); });
+    sel.appendChild(og2);
+  }
+}
+
+function toggleCliPanel(){
+  const p=document.getElementById('cliPanel');
+  const open=p.classList.toggle('open');
+  const btn=document.getElementById('cliToggleBtn');
+  if(btn) btn.classList.toggle('active', open);
+  const prb=document.getElementById('pendingRestartBtn');
+  if(prb) prb.style.bottom=open?'292px':'24px';
+  // Adjust main content padding so content behind panel remains reachable via scroll
+  const mainEl=document.querySelector('main');
+  if(mainEl) mainEl.style.paddingBottom = open ? (p.offsetHeight+24)+'px' : '';
+  if(open){ buildCliPresets(); setTimeout(()=>document.getElementById('cliInput').focus(),100); scrollCliToBottom(); }
+}
+
+function onCliPresetSelect(){
+  const v=document.getElementById('cliPreset').value;
+  if(v){ document.getElementById('cliInput').value=v; document.getElementById('cliInput').focus(); }
+  document.getElementById('cliPreset').value='';
+}
+
+function addCliToFavorites(){
+  const cmd=document.getElementById('cliInput').value.trim();
+  if(!cmd){ toast(t('cli.fav.empty'),'error'); return; }
+  const favs=JSON.parse(LS.get('ocm_cli_favs','[]'));
+  if(favs.find(f=>f.cmd===cmd)){ toast(t('cli.fav.dup'),'error'); return; }
+  const label=prompt(t('cli.favprompt'),cmd.slice(0,50));
+  if(label===null) return;
+  favs.push({label:label||cmd, cmd});
+  LS.set('ocm_cli_favs',JSON.stringify(favs));
+  buildCliPresets();
+  toast(t('cli.fav.saved')+': '+(label||cmd),'success');
+}
+
+function openCliManage(){
+  const favs=JSON.parse(LS.get('ocm_cli_favs','[]'));
+  const list=document.getElementById('cliManageList');
+  if(!favs.length){
+    list.innerHTML='<div class="empty" style="padding:20px;text-align:center">'+
+      (lang==='en'?'No saved commands yet.':'暂无收藏命令')+'</div>';
+  } else {
+    list.innerHTML=favs.map((f,i)=>'<div class="fav-manage-row">'+
+      '<div style="flex:1;overflow:hidden">'+
+        '<div class="fav-manage-label">'+esc(f.label||f.cmd)+'</div>'+
+        '<div class="fav-manage-cmd">'+esc(f.cmd)+'</div>'+
+      '</div>'+
+      '<button class="btn-secondary" style="font-size:11px;padding:3px 8px;flex-shrink:0" onclick="editCliFav('+i+')">✏️</button>'+
+      '<button class="btn-danger" style="font-size:11px;padding:3px 8px;flex-shrink:0" onclick="deleteCliFav('+i+')">✕</button>'+
+    '</div>').join('');
+  }
+  document.getElementById('cliManageModal').classList.add('open');
+}
+
+function deleteCliFav(i){
+  const favs=JSON.parse(LS.get('ocm_cli_favs','[]'));
+  favs.splice(i,1);
+  LS.set('ocm_cli_favs',JSON.stringify(favs));
+  buildCliPresets();
+  openCliManage();
+}
+
+function editCliFav(i){
+  const favs=JSON.parse(LS.get('ocm_cli_favs','[]'));
+  const f=favs[i];
+  const newLabel=prompt((lang==='en'?'Edit name:':'修改名称：'),f.label||f.cmd);
+  if(newLabel===null) return;
+  const newCmd=prompt((lang==='en'?'Edit command:':'修改命令：'),f.cmd);
+  if(newCmd===null||!newCmd.trim()) return;
+  favs[i]={label:newLabel||newCmd.trim(), cmd:newCmd.trim()};
+  LS.set('ocm_cli_favs',JSON.stringify(favs));
+  buildCliPresets();
+  openCliManage();
+}
+
+function cliAppend(text,cls){
+  const out=document.getElementById('cliOutput');
+  const span=document.createElement('span');
+  if(cls) span.className=cls;
+  span.textContent=text;
+  out.appendChild(span);
+  scrollCliToBottom();
+}
+
+function scrollCliToBottom(){ const o=document.getElementById('cliOutput'); if(o) o.scrollTop=o.scrollHeight; }
+
+function clearCliOutput(){ document.getElementById('cliOutput').innerHTML='<span style="color:#555">'+t('cli.cleared')+'</span>'; }
+
+function setCliRunning(running){
+  const sb=document.getElementById('cliStopBtn');
+  if(sb) sb.style.display=running?'':'none';
+}
+
+function killCli(){
+  if(cliEvt){ try{cliEvt.close();}catch(_){} cliEvt=null; }
+  setCliRunning(false);
+  cliAppend('\\n⏹ 已中止\\n','cli-done-err');
+}
+
+function runCli(){
+  const inp=document.getElementById('cliInput');
+  const cmd=inp.value.trim();
+  if(!cmd){ toast('请输入命令','error'); return; }
+  if(!cliHistory.length||cliHistory[0]!==cmd) cliHistory.unshift(cmd);
+  if(cliHistory.length>50) cliHistory.pop();
+  cliHistIdx=-1; inp.value='';
+  if(cliEvt){ try{cliEvt.close();}catch(_){} cliEvt=null; }
+  const out=document.getElementById('cliOutput');
+  // Clear ready/cleared placeholder
+  if(out.children.length===1 && out.children[0].id==='cliReadyMsg') out.innerHTML='';
+  if(out.textContent===t('cli.cleared')) out.innerHTML='';
+  cliAppend('\\n$ '+cmd+'\\n','cli-cmd-line');
+  setCliRunning(true);
+  const es=new EventSource('/api/cli/stream?cmd='+encodeURIComponent(cmd));
+  cliEvt=es;
+  es.addEventListener('out',e=>{
+    try{ cliAppend(JSON.parse(e.data).text); }catch(_){}
+  });
+  es.addEventListener('done',e=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.code===0) cliAppend('\\n✅ 完成 (exit 0)\\n','cli-done-ok');
+      else cliAppend('\\n❌ 退出码 '+d.code+'\\n','cli-done-err');
+    }catch(_){}
+    es.close(); cliEvt=null; setCliRunning(false);
+  });
+  es.addEventListener('error',e=>{
+    try{ cliAppend('\\n⚠ '+(JSON.parse(e.data).message||'命令执行出错')+'\\n','cli-done-err'); }catch(_){}
+    es.close(); cliEvt=null; setCliRunning(false);
+  });
+  es.onerror=()=>{ if(es.readyState===EventSource.CLOSED){ cliEvt=null; setCliRunning(false); } };
+}
+
+function onCliKey(e){
+  if(e.key==='Tab'){ e.preventDefault(); cliTabComplete(e.target); return; }
+  if(e.key==='Escape'){ cliCloseAC(); return; }
+  if(e.key==='Enter'){ cliCloseAC(); runCli(); return; }
+  if(e.key==='ArrowUp'){
+    e.preventDefault();
+    if(cliHistIdx<cliHistory.length-1){ cliHistIdx++; e.target.value=cliHistory[cliHistIdx]; }
+  } else if(e.key==='ArrowDown'){
+    e.preventDefault();
+    if(cliHistIdx>0){ cliHistIdx--; e.target.value=cliHistory[cliHistIdx]; }
+    else if(cliHistIdx===0){ cliHistIdx=-1; e.target.value=''; }
+  }
+  // 其他键关闭补全菜单
+  if(e.key!=='Tab'&&e.key!=='ArrowUp'&&e.key!=='ArrowDown') cliCloseAC();
+}
+
+// ── CLI Tab 补全 ─────────────────────────────────────────────
+const CLI_SUBCOMMANDS=['openclaw','doctor','gateway','models','agents','backup','config','auth',
+  'restart','start','stop','status','logs','list','create','validate','update','onboard','sync',
+  'paste-token','--provider','--version','--dir','--port'];
+
+function cliTabComplete(input){
+  const val=input.value;
+  const words=val.split(/\\s+/);
+  const lastWord=words[words.length-1]||'';
+  if(!lastWord){ return; }
+  // 收集候选: subcommands + preset commands + history
+  const candidates=new Set();
+  CLI_SUBCOMMANDS.forEach(c=>candidates.add(c));
+  CLI_DEFAULTS.forEach(c=>candidates.add(c.cmd));
+  cliHistory.forEach(c=>candidates.add(c));
+  // 过滤: 如果是完整命令行匹配（words.length>1 时只匹配最后一个词）
+  let matches=[];
+  if(words.length===1){
+    // 匹配完整命令或第一个词
+    matches=[...candidates].filter(c=>c.toLowerCase().startsWith(lastWord.toLowerCase()));
+  } else {
+    // 匹配子命令词
+    matches=[...CLI_SUBCOMMANDS,...CLI_DEFAULTS.map(c=>c.cmd.split(/\\s+/).pop())]
+      .filter(c=>c.toLowerCase().startsWith(lastWord.toLowerCase()));
+    matches=[...new Set(matches)];
+  }
+  if(matches.length===0) return;
+  if(matches.length===1){
+    // 单一匹配：直接补全
+    if(words.length===1){ input.value=matches[0]; }
+    else { words[words.length-1]=matches[0]; input.value=words.join(' '); }
+    cliCloseAC();
+  } else {
+    // 多个匹配：找公共前缀先补全，同时显示候选列表
+    const prefix=commonPrefix(matches);
+    if(prefix.length>lastWord.length){
+      if(words.length===1){ input.value=prefix; }
+      else { words[words.length-1]=prefix; input.value=words.join(' '); }
+    }
+    cliShowAC(matches.slice(0,12),input);
+  }
+}
+function commonPrefix(arr){
+  if(!arr.length) return '';
+  let p=arr[0];
+  for(let i=1;i<arr.length;i++){
+    while(!arr[i].toLowerCase().startsWith(p.toLowerCase())&&p.length>0) p=p.slice(0,-1);
+  }
+  return p;
+}
+function cliShowAC(items,input){
+  cliCloseAC();
+  const box=document.createElement('div');
+  box.id='cliACBox';
+  box.style.cssText='position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:180px;overflow-y:auto;z-index:200;box-shadow:0 -4px 12px rgba(0,0,0,.3)';
+  items.forEach(item=>{
+    const d=document.createElement('div');
+    d.textContent=item;
+    d.style.cssText='padding:6px 12px;font-size:12px;font-family:monospace;cursor:pointer;color:var(--text);border-bottom:1px solid var(--border)';
+    d.onmouseover=()=>{d.style.background='rgba(108,99,255,.15)';};
+    d.onmouseout=()=>{d.style.background='';};
+    d.onclick=()=>{ input.value=item; input.focus(); cliCloseAC(); };
+    box.appendChild(d);
+  });
+  const row=input.closest('.cli-input-row');
+  if(row){ row.style.position='relative'; row.appendChild(box); }
+}
+function cliCloseAC(){ const b=document.getElementById('cliACBox'); if(b) b.remove(); }
+
+// ── 工具栏操作 ───────────────────────────────────────────────
+
+// 拖拽调整 CLI 面板高度
+(function(){
+  const handle=document.getElementById('cliResizeHandle');
+  if(!handle) return;
+  let sy=0, sh=0;
+  handle.addEventListener('mousedown',function(e){
+    sy=e.clientY; sh=document.getElementById('cliOutput').offsetHeight;
+    e.preventDefault();
+    document.addEventListener('mousemove',onDrag);
+    document.addEventListener('mouseup',function(){ document.removeEventListener('mousemove',onDrag); },{once:true});
+  });
+  function onDrag(e){
+    const newH=Math.max(80,Math.min(600,sh+(sy-e.clientY)));
+    document.getElementById('cliOutput').style.height=newH+'px';
+    const prb=document.getElementById('pendingRestartBtn');
+    if(prb) prb.style.bottom=(newH+72)+'px';
+  }
+})();
+
+// ── Stats（使用统计）────────────────────────────────────────
+async function loadStats(){
+  try{
+    const days=document.getElementById('statsDaysFilter')?.value||30;
+    const r=await api('GET','/api/stats?days='+days);
+    const s=r.summary||{};
+    document.getElementById('statsTotalInput').textContent=fmtNum(s.totalInputTokens||0);
+    document.getElementById('statsTotalOutput').textContent=fmtNum(s.totalOutputTokens||0);
+    document.getElementById('statsTotalCost').textContent=s.estimatedCost||'$0';
+    const totalReqs=Object.values(r.byModel||{}).reduce((a,b)=>a+(b.requestCount||0),0);
+    document.getElementById('statsTotalReqs').textContent=fmtNum(totalReqs);
+    // by model
+    const bmEl=document.getElementById('statsByModel');
+    const bmEntries=Object.entries(r.byModel||{});
+    bmEl.innerHTML=bmEntries.length?bmEntries.map(([m,d])=>\`<div class="card" style="padding:12px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">\${esc(m)}</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8">In: \${fmtNum(d.inputTokens)} · Out: \${fmtNum(d.outputTokens)} · \${d.requestCount} reqs · $\${d.cost}</div>
+    </div>\`).join(''):'<div class="empty" style="padding:20px">'+t('stats.noData')+'</div>';
+    // by day chart
+    const chartEl=document.getElementById('statsChart');
+    const dayEntries=Object.entries(r.byDay||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+    if(!dayEntries.length){ chartEl.innerHTML='<div class="empty" style="width:100%;text-align:center">'+t('stats.noData')+'</div>'; return; }
+    const maxTk=Math.max(...dayEntries.map(([,d])=>(d.inputTokens||0)+(d.outputTokens||0)),1);
+    chartEl.innerHTML=dayEntries.map(([day,d])=>{
+      const total=(d.inputTokens||0)+(d.outputTokens||0);
+      const pct=Math.max(2,total/maxTk*100);
+      return \`<div style="flex:1;min-width:12px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="\${day}: \${fmtNum(total)} tokens · $\${d.cost}">
+        <div style="width:100%;max-width:28px;background:var(--accent);height:\${pct}%;border-radius:3px 3px 0 0;opacity:.8;min-height:2px"></div>
+        <div style="font-size:8px;color:var(--muted);margin-top:3px;writing-mode:vertical-rl;transform:rotate(180deg)">\${day.slice(5)}</div>
+      </div>\`;
+    }).join('');
+  }catch(e){ toast((lang==='en'?'Stats load failed: ':'统计加载失败: ')+e.message,'error'); }
+}
+function fmtNum(n){ if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return String(n); }
+
+// ── Cron（计划任务）──────────────────────────────────────────
+async function loadCrons(){
+  try{
+    const r=await api('GET','/api/cron');
+    const el=document.getElementById('cronList');
+    if(!r.crons||!r.crons.length){ el.innerHTML='<div class="empty">'+t('cron.empty')+'</div>'; return; }
+    el.innerHTML=r.crons.map(c=>\`<div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+        <div style="flex:1;overflow:hidden">
+          <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${esc(c.command)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">⏰ \${esc(c.schedule)}\${c.label?' · '+esc(c.label):''}</div>
+        </div>
+        <span class="badge \${c.enabled?'ok':'warn'}" style="margin-left:8px">\${c.enabled?t('cron.enabled'):t('cron.disabled')}</span>
+      </div>
+      <div class="card-actions" style="gap:6px">
+        <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="toggleCron(\${c.idx},\${c.enabled})">\${c.enabled?(lang==='en'?'Disable':'禁用'):(lang==='en'?'Enable':'启用')}</button>
+        <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="runCronNow(\${c.idx})">\${t('cron.run')}</button>
+        <button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteCron(\${c.idx})">\${t('btn.delete')}</button>
+      </div>
+    </div>\`).join('');
+  }catch(e){ toast((lang==='en'?'Cron load failed: ':'任务加载失败: ')+e.message,'error'); }
+}
+function openAddCron(){
+  document.getElementById('cron-schedule').value='';
+  document.getElementById('cron-command').value='';
+  document.getElementById('cron-label').value='';
+  openModal('addCronModal');
+}
+async function submitAddCron(){
+  const schedule=document.getElementById('cron-schedule').value.trim();
+  const command=document.getElementById('cron-command').value.trim();
+  const label=document.getElementById('cron-label').value.trim();
+  if(!schedule||!command){toast(lang==='en'?'Fill in expression and command':'请填写表达式和命令','error');return;}
+  try{
+    await api('POST','/api/cron',{schedule,command,label:label||'openclaw-manager'});
+    toast(lang==='en'?'Task added':'任务已添加','success');
+    closeModal('addCronModal'); await loadCrons();
+  }catch(e){toast((lang==='en'?'Failed: ':'失败: ')+e.message,'error');}
+}
+async function toggleCron(idx,currentEnabled){
+  try{
+    await api('PUT','/api/cron/'+idx,{enabled:!currentEnabled});
+    await loadCrons();
+  }catch(e){toast((lang==='en'?'Failed: ':'失败: ')+e.message,'error');}
+}
+async function runCronNow(idx){
+  toast(lang==='en'?'Running...':'执行中...','info');
+  try{
+    const r=await api('POST','/api/cron/'+idx+'/run');
+    toast(lang==='en'?'Done':'完成','success');
+  }catch(e){toast((lang==='en'?'Failed: ':'失败: ')+e.message,'error');}
+}
+async function deleteCron(idx){
+  if(!confirm(lang==='en'?'Delete this task?':'删除此任务？'))return;
+  try{ await api('DELETE','/api/cron/'+idx); toast(lang==='en'?'Deleted':'已删除','success'); await loadCrons(); }
+  catch(e){toast((lang==='en'?'Failed: ':'失败: ')+e.message,'error');}
+}
+
+// ── 工具栏操作 ───────────────────────────────────────────────
+function toggleMenu(){document.getElementById('mainMenu').classList.toggle('open');}
+document.addEventListener('click',e=>{
+  const app=document.getElementById('mainApp');
+  if(app&&!e.target.closest('.menu-wrap'))document.getElementById('mainMenu').classList.remove('open');
+});
+
+async function doRestart(){
+  closeMenu(); dismissBanner(); hidePendingRestart();
+  document.getElementById('cmdTitle').textContent='重启 Gateway';
+  document.getElementById('cmdOutput').textContent='执行中...'; openModal('cmdModal');
+  try{
+    const r=await api('POST','/api/gateway/restart');
+    document.getElementById('cmdOutput').textContent=r.output||'重启命令已发送。';
+    toast('Gateway 已重启','success');
+  }catch(e){
+    document.getElementById('cmdOutput').textContent='❌ '+e.message+'\\n\\n请在终端手动运行:\\nopenclaw gateway restart';
+    toast('重启失败: '+e.message,'error');
+  }
+}
+async function doDoctor(){
+  closeMenu();
+  document.getElementById('cmdTitle').textContent='健康检查 (doctor)';
+  document.getElementById('cmdOutput').textContent='运行中...'; openModal('cmdModal');
+  try{
+    const r=await api('POST','/api/gateway/doctor');
+    document.getElementById('cmdOutput').textContent=r.output||'（无输出）';
+  }catch(e){document.getElementById('cmdOutput').textContent='❌ '+e.message;}
+}
+async function manualBackup(){
+  closeMenu();
+  try{const r=await api('POST','/api/config/backup'); toast('备份已保存: '+r.bakPath.split('/').pop(),'success');}
+  catch(e){toast('备份失败: '+e.message,'error');}
+}
+function openConfigDir(){ closeMenu(); api('POST','/api/folder/open').catch(()=>{}); }
+function closeMenu(){ document.getElementById('mainMenu').classList.remove('open'); }
+
+// ── 日志 ─────────────────────────────────────────────────────
+async function openLogs(){ closeMenu(); openModal('logModal'); await refreshLogs(); }
+async function refreshLogs(){
+  try{
+    const r=await api('GET','/api/logs?n=300');
+    document.getElementById('logContent').textContent=r.content||'（空）';
+    document.getElementById('logPath').textContent=r.path||'';
+    const lb=document.getElementById('logContent'); lb.scrollTop=lb.scrollHeight;
+  }catch(e){document.getElementById('logContent').textContent='加载失败: '+e.message;}
+}
+function toggleAutoRefresh(){
+  const cb=document.getElementById('autoRefresh');
+  if(cb.checked){ logTimer=setInterval(refreshLogs,2000); }
+  else{ clearInterval(logTimer); logTimer=null; }
+}
+function closeLogs(){ clearInterval(logTimer); logTimer=null; document.getElementById('autoRefresh').checked=false; closeModal('logModal'); }
+
+// ── 回滚 ─────────────────────────────────────────────────────
+async function openRollback(){
+  closeMenu(); openModal('rollbackModal');
+  const el=document.getElementById('backupList');
+  el.innerHTML='<div class="empty">加载中...</div>';
+  try{
+    const r=await api('GET','/api/backups');
+    if(!r.backups.length){el.innerHTML='<div class="empty">暂无备份文件</div>';return;}
+    el.innerHTML=r.backups.map(f=>\`<div class="card">
+      <div class="card-row"><span class="card-title" style="font-size:13px">\${esc(f)}</span></div>
+      <div class="card-actions"><button class="btn-warn" onclick="doRestore('\${esc(f)}')">⏪ 恢复此备份</button></div>
+    </div>\`).join('');
+  }catch(e){el.innerHTML='<div class="empty">加载失败</div>';}
+}
+async function doRestore(filename){
+  if(!confirm(\`确认将配置恢复为：\\n\${filename}\\n\\n当前配置将先被自动备份。继续？\`))return;
+  try{
+    await api('POST','/api/backups/restore',{filename});
+    toast('已恢复 '+filename,'success');
+    closeModal('rollbackModal'); await loadAll(); showRestartBanner();
+  }catch(e){toast('恢复失败: '+e.message,'error');}
+}
+
+// ── NAS 备份 ─────────────────────────────────────────────────
+async function openNasModal(){
+  closeMenu();
+  const cfg=await api('GET','/api/backup/nas-config');
+  document.getElementById('nas-host').value=cfg.nasHost||'';
+  document.getElementById('nas-port').value=cfg.nasPort||'22';
+  document.getElementById('nas-user').value=cfg.nasUser||'';
+  document.getElementById('nas-sshkey').value=cfg.nasSshKey||'';
+  document.getElementById('nas-path').value=cfg.nasPath||'/volume1/OpenClaw/backups';
+  document.getElementById('nas-legacy').checked=!!cfg.nasLegacyCipher;
+  document.getElementById('nas-password').value='';
+  document.getElementById('nas-result').style.display='none';
+  document.getElementById('nas-cron-section').style.display='none';
+  document.getElementById('nas-pubkey-box').style.display='none';
+  const authType=cfg.nasAuth||'password';
+  document.getElementById(authType==='key'?'nas-auth-key':'nas-auth-pw').checked=true;
+  nasAuthChange();
+  const bkType=cfg.nasBackupType||'full';
+  document.getElementById(bkType==='essential'?'nas-bk-ess':'nas-bk-full').checked=true;
+  openModal('nasModal');
+}
+function nasAuthChange(){
+  const isKey=document.getElementById('nas-auth-key').checked;
+  document.getElementById('nas-pw-section').style.display=isKey?'none':'';
+  document.getElementById('nas-key-section').style.display=isKey?'':'none';
+}
+function nasGetConfig(){
+  return {
+    nasHost:       document.getElementById('nas-host').value.trim(),
+    nasPort:       document.getElementById('nas-port').value.trim()||'22',
+    nasUser:       document.getElementById('nas-user').value.trim(),
+    nasAuth:       document.getElementById('nas-auth-key').checked?'key':'password',
+    nasSshKey:     document.getElementById('nas-sshkey').value.trim(),
+    nasPath:       document.getElementById('nas-path').value.trim(),
+    nasLegacyCipher: document.getElementById('nas-legacy').checked,
+    nasBackupType: document.getElementById('nas-bk-ess').checked?'essential':'full',
+  };
+}
+function nasShowResult(text,ok){
+  const el=document.getElementById('nas-result');
+  el.style.display=''; el.style.color=ok?'var(--success)':'#f85149';
+  el.textContent=text;
+}
+async function nasGenKey(){
+  const cfg=nasGetConfig();
+  await api('PUT','/api/backup/nas-config',{...cfg,nasEnabled:true});
+  try{const r=await api('POST','/api/backup/nas-keygen');
+    document.getElementById('nas-sshkey').value=r.keyPath;
+    const box=document.getElementById('nas-pubkey-box');
+    box.style.display=''; box.textContent=t('nas.pubkeyHint')+'\\n'+r.pubKey;
+    nasShowResult(t('nas.keyGenOk'),true);
+  }catch(e){nasShowResult(t('nas.keyGenFail')+e.message,false);}
+}
+async function nasTest(){
+  const cfg=nasGetConfig();
+  if(!cfg.nasHost||!cfg.nasUser){nasShowResult(t('nas.errNoHost'),false);return;}
+  await api('PUT','/api/backup/nas-config',{...cfg,nasEnabled:true});
+  nasShowResult(t('nas.testing'),true);
+  try{
+    const pwd=cfg.nasAuth==='password'?document.getElementById('nas-password').value:'';
+    const r=await api('POST','/api/backup/nas-test',{password:pwd});
+    nasShowResult(r.ok?t('nas.testOk'):t('nas.testFail')+(r.error||r.output),r.ok);
+  }catch(e){nasShowResult('❌ '+e.message,false);}
+}
+async function nasBackupNow(){
+  const cfg=nasGetConfig();
+  if(!cfg.nasHost||!cfg.nasUser){nasShowResult(t('nas.errNoHost'),false);return;}
+  await api('PUT','/api/backup/nas-config',{...cfg,nasEnabled:true});
+  nasShowResult(t('nas.backing'),true);
+  try{
+    const pwd=cfg.nasAuth==='password'?document.getElementById('nas-password').value:'';
+    const r=await api('POST','/api/backup/nas-now',{password:pwd});
+    nasShowResult(t('nas.backupOk')+r.tarName,true);
+    toast(t('nas.backupToast'),'success');
+  }catch(e){nasShowResult(t('nas.backupFail')+e.message,false);}
+}
+function openNasCron(){
+  const sec=document.getElementById('nas-cron-section');
+  sec.style.display=sec.style.display==='none'?'':'none';
+}
+async function nasSetCron(){
+  const cfg=nasGetConfig();
+  if(!cfg.nasHost||!cfg.nasUser){nasShowResult(t('nas.errNoHost'),false);return;}
+  await api('PUT','/api/backup/nas-config',{...cfg,nasEnabled:true});
+  try{
+    const pwd=cfg.nasAuth==='password'?document.getElementById('nas-password').value:'';
+    const cronTime=document.getElementById('nas-cron-time').value||'03:00';
+    const r=await api('POST','/api/backup/nas-cron',{password:pwd,cronTime});
+    nasShowResult(t('nas.cronOk')+'('+cronTime+')',true);
+    toast(t('nas.cronToast'),'success');
+  }catch(e){nasShowResult('❌ '+e.message,false);}
+}
+
+
+// ── 目录设置 ─────────────────────────────────────────────────
+function openSetupModal(){ closeMenu(); openModal('setupModal'); }
+async function submitSetup(){
+  const dir=document.getElementById('setup-dir').value.trim();
+  const err=document.getElementById('setup-err');
+  if(!dir){err.textContent='请填写路径';return;}
+  try{
+    const r=await api('POST','/api/setup',{dir});
+    if(r.ok){ toast('目录已切换，正在刷新...','success'); setTimeout(()=>location.reload(),800); }
+    else err.textContent=r.error||'路径无效';
+  }catch(e){err.textContent='请求失败: '+e.message;}
+}
+
+// ── 重启横幅 ─────────────────────────────────────────────────
+function showRestartBanner(){ document.getElementById('restartBanner').classList.add('show'); }
+function dismissBanner(){ document.getElementById('restartBanner').classList.remove('show'); }
+function deferRestart(){
+  dismissBanner();
+  document.getElementById('pendingRestartBtn').style.display='block';
+}
+function hidePendingRestart(){
+  document.getElementById('pendingRestartBtn').style.display='none';
+}
+
+// ── 密码显示切换 ─────────────────────────────────────────────
+function togglePwd(inputId,btn){
+  const el=document.getElementById(inputId);
+  if(!el)return;
+  if(el.type==='password'){el.type='text';btn.textContent='🙈';}
+  else{el.type='password';btn.textContent='👁';}
+}
+
+// ── 工具 ─────────────────────────────────────────────────────
+async function api(method,path,body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body) opts.body=JSON.stringify(body);
+  const r=await fetch(path,opts);
+  const d=await r.json();
+  if(!r.ok) throw new Error(d.error||r.status);
+  return d;
+}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function setDot(s){const el=document.getElementById('dot');if(el)el.className='dot '+s;}
+function toast(msg,type='info'){
+  const c=document.getElementById('toast');
+  const el=document.createElement('div');
+  el.style.cssText='background:var(--card);border:1px solid var(--border);border-radius:8px;padding:11px 15px;font-size:13px;max-width:340px;animation:fadeIn .2s';
+  if(type==='success') el.style.borderColor='var(--success)';
+  if(type==='error')   el.style.borderColor='var(--danger)';
+  el.textContent=msg;
+  c.appendChild(el);
+  setTimeout(()=>el.remove(),4500);
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Tabs ─────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+    // 懒加载
+    if(t.dataset.tab==='stats') loadStats();
+    if(t.dataset.tab==='cron') loadCrons();
+  });
+});
+</script>
+</body></html>`;
+
+// ── HTTP 服务器 ───────────────────────────────────────────────
+const server = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  const urlObj = new URL(req.url, `http://127.0.0.1:${PORT}`);
+
+  try {
+    if (urlObj.pathname.startsWith('/api/')) {
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseBody(req) : {};
+      await handleApi(req, res, urlObj, body);
+    } else {
+      const needsSetup = !(await configExists());
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(needsSetup ? SETUP_HTML : MAIN_HTML);
+    }
+  } catch (err) {
+    console.error('[ERROR]', err.message);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  const url = `http://localhost:${PORT}`;
+  console.log('');
+  console.log('🦀 OpenClaw Manager v0.3');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📂 目录：' + OPENCLAW_DIR);
+  console.log('🌐 地址：' + url);
+  console.log('💡 切换目录：node openclaw-manager.js --dir /path/to/.openclaw');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Ctrl+C 停止');
+  openBrowser(url);
+});
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE')
+    console.error(`❌ 端口 ${PORT} 已占用。请关闭其他程序后重试，或用 --port 指定其他端口。`);
+  else
+    console.error('❌ 启动失败：', err.message);
+  process.exit(1);
+});

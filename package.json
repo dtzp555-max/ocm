@@ -1,0 +1,24 @@
+{
+  "name": "openclaw-manager",
+  "version": "0.4.2",
+  "description": "A local web UI for managing OpenClaw AI agents — no npm install required",
+  "main": "openclaw-manager.js",
+  "scripts": {
+    "start": "node openclaw-manager.js",
+    "start:dir": "node openclaw-manager.js --dir"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "openclaw",
+    "ai-agent",
+    "telegram-bot",
+    "llm",
+    "local-ui",
+    "no-dependencies"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
