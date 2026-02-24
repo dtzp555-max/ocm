@@ -154,6 +154,12 @@ ocm/
 - **Frontend**: Vanilla HTML/CSS/JS embedded in a template literal — no build step, no framework
 - **Architecture**: Single-file, zero-dependency, runs anywhere Node.js runs
 
+## Support / Donate
+
+If OCM saves you time, consider starring the repo or sponsoring development.
+
+- GitHub Sponsors: *(add link when ready)*
+
 ## License
 
 MIT
