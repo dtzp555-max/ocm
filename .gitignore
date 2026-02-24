@@ -1,6 +1,19 @@
 # Local configuration (machine-specific paths, do not commit)
 manager-config.json
 
+# Env files / secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Credentials / keys (never commit)
+credentials/
+**/credentials/
+*.pem
+*.key
+id_rsa
+id_ed25519
+
 # OpenClaw config backups
 *.bak
 *.bak.*
@@ -27,4 +40,4 @@ Desktop.ini
 node_modules/
 npm-debug.log*
 yarn-error.log*
-.env.local
+
