@@ -1,6 +1,6 @@
 # OpenClaw Manager (OCM)
 
-> A zero-dependency, single-file web UI for managing [OpenClaw](https://github.com/anthropics/openclaw) AI agents locally.
+> A zero-dependency, single-file local dashboard for [OpenClaw](https://github.com/anthropics/openclaw) — manage sub-agents, run commands in a built-in CLI, and stop hand-editing JSON.
 
 [中文说明](#中文说明)
 
@@ -8,9 +8,13 @@
 
 ## What is this?
 
-OpenClaw Manager is a lightweight local web dashboard that lets you visually manage your OpenClaw AI agents, models, auth, cron jobs, and more — without editing JSON files by hand.
+OCM is a lightweight local dashboard for OpenClaw that helps you:
 
-Everything ships as **a single `.js` file** with zero npm dependencies. Just need Node.js 18+.
+- **Manage sub-agents fast** (create with a wizard, switch models inline)
+- **Run OpenClaw commands inside the app** via a built-in CLI terminal
+- **Stop hunting for CLI flags / docs** with curated command presets + favorites
+
+Everything ships as **a single `.js` file** with zero npm dependencies — just Node.js 18+.
 
 ## Screenshots
 
