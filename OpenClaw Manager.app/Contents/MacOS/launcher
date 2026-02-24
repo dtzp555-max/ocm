@@ -1,0 +1,31 @@
+#!/bin/bash
+# ================================================================
+# OpenClaw Manager — macOS App 启动器
+#
+# 使用 osascript 打开 Terminal，先等待 shell 初始化完成
+# （避免 oh-my-zsh 更新提示吞掉命令），再执行 start.sh
+# ================================================================
+
+# 获取 .app 所在目录（即 ocm 目录）
+APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+START_SH="$APP_DIR/start.sh"
+
+# 检查 start.sh 是否存在
+if [ ! -f "$START_SH" ]; then
+    osascript -e "display dialog \"找不到 start.sh\n\n期望路径:\n$START_SH\n\n请确认 .app 和 start.sh 在同一目录下。\" buttons {\"OK\"} default button 1 with title \"OpenClaw Manager\" with icon stop"
+    exit 1
+fi
+
+# 确保执行权限
+chmod +x "$START_SH" 2>/dev/null
+
+# 策略：先打开 Terminal 发一个空回车（让 oh-my-zsh 更新提示消失），
+# 等待 3 秒让 shell 完全初始化，再发送真正的启动命令
+osascript <<APPLESCRIPT
+tell application "Terminal"
+    activate
+    set newWindow to do script ""
+    delay 3
+    do script "/bin/bash '${START_SH}'" in newWindow
+end tell
+APPLESCRIPT
