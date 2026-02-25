@@ -1,13 +1,13 @@
 @echo off
 :: ================================================================
-:: OpenClaw Manager v0.5.2 — Windows 启动脚本
+:: OpenClaw Manager v0.6.0 — Start Script (Windows)
 ::
-:: 特性：
-::   * 自动检测 Node.js，未安装时给出安装指引（winget/scoop/官网）
-::   * 自动检测 %USERPROFILE%\.openclaw 目录
-::   * 首次运行自动创建 manager-config.json
-::   * 自动检测端口占用并建议替代端口
-::   * 支持 --dir / --port / --help 参数
+:: Features:
+::   * Auto-detect Node.js, show install instructions if missing
+::   * Auto-detect %USERPROFILE%\.openclaw directory
+::   * Auto-create manager-config.json on first run
+::   * Auto-kill previous OCM process if port is in use
+::   * Supports --dir / --port / --host / --help
 :: ================================================================
 setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
@@ -19,48 +19,47 @@ set "MIN_NODE_MAJOR=18"
 
 echo.
 echo   ===================================
-echo      OpenClaw Manager  v0.5.2
+echo      OpenClaw Manager  v0.6.0
 echo   -----------------------------------
 echo.
 
-:: ── 检查主文件 ────────────────────────────────────────────────
+:: ── Check main file ─────────────────────────────────────────
 if not exist "%MANAGER_JS%" (
-    echo   [X] 找不到 openclaw-manager.js
-    echo       期望路径: %MANAGER_JS%
+    echo   [X] Cannot find openclaw-manager.js
+    echo       Expected: %MANAGER_JS%
     echo.
     pause
     exit /b 1
 )
 
-:: ── 检查 Node.js ─────────────────────────────────────────────
+:: ── Check Node.js ───────────────────────────────────────────
 where node >nul 2>&1
 if errorlevel 1 (
-    echo   [X] 未找到 Node.js
+    echo   [X] Node.js not found
     echo.
-    echo   安装方式（选一种即可）：
+    echo   Install Node.js (pick one):
     echo.
     echo   1^) winget:   winget install OpenJS.NodeJS.LTS
     echo   2^) scoop:    scoop install nodejs-lts
-    echo   3^) 官网下载: https://nodejs.org/
+    echo   3^) Official: https://nodejs.org/
     echo   4^) nvm-windows: https://github.com/coreybutler/nvm-windows
     echo.
     pause
     exit /b 1
 )
 
-:: 获取主版本号并检查
 for /f "tokens=1 delims=." %%v in ('node -e "process.stdout.write(process.versions.node)"') do (
     set "NODE_MAJOR=%%v"
 )
 
 if !NODE_MAJOR! LSS %MIN_NODE_MAJOR% (
-    echo   [!] Node.js 版本过低（需要 ^>= v%MIN_NODE_MAJOR%）
+    echo   [!] Node.js too old (need ^>= v%MIN_NODE_MAJOR%)
     echo.
-    echo   安装方式（选一种即可）：
+    echo   Install Node.js (pick one):
     echo.
     echo   1^) winget:   winget install OpenJS.NodeJS.LTS
     echo   2^) scoop:    scoop install nodejs-lts
-    echo   3^) 官网下载: https://nodejs.org/
+    echo   3^) Official: https://nodejs.org/
     echo.
     pause
     exit /b 1
@@ -70,9 +69,10 @@ for /f "tokens=*" %%v in ('node -e "process.stdout.write('v'+process.versions.no
     echo   [OK] Node.js %%v
 )
 
-:: ── 解析参数 ─────────────────────────────────────────────────
+:: ── Parse arguments ─────────────────────────────────────────
 set "DIR_ARG="
 set "PORT_ARG="
+set "HOST_ARG="
 set "EXTRA_ARGS="
 
 :parse_args
@@ -89,23 +89,29 @@ if /i "%~1"=="--port" (
     shift & shift
     goto :parse_args
 )
+if /i "%~1"=="--host" (
+    set "HOST_ARG=%~2"
+    shift & shift
+    goto :parse_args
+)
 set "EXTRA_ARGS=!EXTRA_ARGS! %~1"
 shift
 goto :parse_args
 
 :show_help
-echo 用法: start.bat [选项]
+echo Usage: start.bat [options]
 echo.
-echo 选项:
-echo   --dir  ^<路径^>   OpenClaw 配置目录（默认 %%USERPROFILE%%\.openclaw）
-echo   --port ^<端口^>   监听端口（默认 3333）
-echo   --help          显示帮助
+echo Options:
+echo   --dir  ^<path^>   OpenClaw config directory (default: %%USERPROFILE%%\.openclaw)
+echo   --port ^<port^>   Listen port (default: 3333)
+echo   --host ^<addr^>   Bind address (default: 0.0.0.0)
+echo   --help          Show this help
 echo.
 exit /b 0
 
 :after_args
 
-:: ── 检测 OpenClaw 配置目录 ───────────────────────────────────
+:: ── Detect OpenClaw config directory ────────────────────────
 set "OPENCLAW_DIR="
 if defined DIR_ARG (
     set "OPENCLAW_DIR=!DIR_ARG!"
@@ -117,54 +123,48 @@ if defined DIR_ARG (
 if not defined OPENCLAW_DIR set "OPENCLAW_DIR=%USERPROFILE%\.openclaw"
 
 if exist "!OPENCLAW_DIR!" (
-    echo   [OK] 配置目录: !OPENCLAW_DIR!
+    echo   [OK] Config dir: !OPENCLAW_DIR!
 ) else (
-    echo   [!] 配置目录不存在: !OPENCLAW_DIR!
-    echo       首次使用？请先运行 openclaw onboard 初始化。
+    echo   [!] Config dir not found: !OPENCLAW_DIR!
+    echo       First time? Run: openclaw onboard
 )
 
-:: ── 首次运行：自动创建 manager-config.json ────────────────────
+:: ── First run: auto-create manager-config.json ──────────────
 if not exist "%CONFIG_JSON%" (
-    echo   [-^>] 首次运行，创建 manager-config.json
+    echo   [-^>] First run, creating manager-config.json
     node -e "require('fs').writeFileSync('%CONFIG_JSON%',JSON.stringify({dir:'~/.openclaw'},null,2))"
 )
 
-:: ── 检查端口可用性 ───────────────────────────────────────────
+:: ── Port handling: kill old process if occupied ─────────────
 set "PORT=3333"
 if defined PORT_ARG set "PORT=!PORT_ARG!"
 
-netstat -an 2>nul | findstr /r ":%PORT% .*LISTENING" >nul 2>&1
-if not errorlevel 1 (
-    echo   [!] 端口 !PORT! 已被占用
-    for %%p in (3334 3335 3336 8080 8888) do (
-        netstat -an 2>nul | findstr /r ":%%p .*LISTENING" >nul 2>&1
-        if errorlevel 1 (
-            echo       尝试备用端口 %%p...
-            set "PORT=%%p"
-            set "PORT_ARG=%%p"
-            goto :port_ok
-        )
-    )
+:: Find PID using the port and kill it
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr /r ":!PORT! .*LISTENING"') do (
+    echo   [!] Port !PORT! in use (PID %%p), stopping old process...
+    taskkill /PID %%p /F >nul 2>&1
+    timeout /t 1 /nobreak >nul 2>&1
+    echo   [OK] Old process stopped
 )
-:port_ok
 
-:: ── 构建启动命令 ─────────────────────────────────────────────
+:: ── Build launch command ────────────────────────────────────
 set "CMD_ARGS="
 if defined DIR_ARG  set "CMD_ARGS=!CMD_ARGS! --dir "!DIR_ARG!""
 if defined PORT_ARG set "CMD_ARGS=!CMD_ARGS! --port !PORT_ARG!"
+if defined HOST_ARG set "CMD_ARGS=!CMD_ARGS! --host !HOST_ARG!"
 if defined EXTRA_ARGS set "CMD_ARGS=!CMD_ARGS! !EXTRA_ARGS!"
 
 echo.
-echo   [^>] 启动中 -^> http://localhost:!PORT!
-echo       Ctrl+C 停止
+echo   [^>] Starting -^> http://localhost:!PORT!
+echo       Ctrl+C to stop
 echo.
 
-:: ── 启动 ─────────────────────────────────────────────────────
+:: ── Launch ──────────────────────────────────────────────────
 node "%MANAGER_JS%"!CMD_ARGS!
 
 if errorlevel 1 (
     echo.
-    echo   [X] 启动失败，请检查上方错误信息。
+    echo   [X] Failed to start. Check errors above.
     pause
 )
 endlocal

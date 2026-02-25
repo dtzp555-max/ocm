@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.5.2
+// OpenClaw Manager v0.6.0
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.5.2';
+const APP_VERSION = '0.6.0';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -350,6 +350,40 @@ async function handleApi(req, res, urlObj, body) {
     });
     res.writeHead(200);
     res.end(JSON.stringify({ agents: enriched, defaults }));
+    return;
+  }
+
+  // POST /api/agents/main — create or update main agent (set Bot Token)
+  if (method === 'POST' && pathname === '/api/agents/main') {
+    const { botToken, name, model } = body;
+    if (!botToken || !botToken.trim()) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Bot Token is required' })); return;
+    }
+    const cfg = await readConfig();
+    // Set bot token
+    if (!cfg.channels) cfg.channels = {};
+    if (!cfg.channels.telegram) cfg.channels.telegram = {};
+    cfg.channels.telegram.botToken = botToken.trim();
+    cfg.channels.telegram.enabled = true;
+    // Ensure main agent exists
+    if (!cfg.agents) cfg.agents = { defaults: {}, list: [] };
+    if (!cfg.agents.list) cfg.agents.list = [];
+    let mainAgent = cfg.agents.list.find(a => a.id === 'main');
+    if (!mainAgent) {
+      mainAgent = { id: 'main' };
+      cfg.agents.list.push(mainAgent);
+    }
+    if (name) mainAgent.name = name.trim();
+    if (model) mainAgent.model = { primary: model };
+    // Ensure main catch-all binding exists
+    if (!cfg.bindings) cfg.bindings = [];
+    const hasMainBinding = cfg.bindings.some(b => b.agentId === 'main' && !b.match?.peer);
+    if (!hasMainBinding) {
+      cfg.bindings.push({ agentId: 'main', match: { channel: 'telegram', accountId: 'default' } });
+    }
+    const bakPath = await writeConfig(cfg, 'create');
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, configBackup: bakPath }));
     return;
   }
 
@@ -1207,27 +1241,6 @@ const MAIN_HTML_CSS = String.raw`*, *::before, *::after { box-sizing: border-box
 }
 body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height:100vh; }
 
-/* ── Landing Page ── */
-.landing { position:fixed; inset:0; background:var(--bg); z-index:999; display:flex; align-items:center; justify-content:center; flex-direction:column; padding:30px; }
-.landing-logo { font-size:38px; margin-bottom:8px; }
-.landing-title { font-size:26px; font-weight:700; color:var(--accent); margin-bottom:6px; }
-.landing-sub { font-size:14px; color:var(--muted); margin-bottom:36px; }
-.landing-lang { display:flex; gap:8px; margin-bottom:36px; }
-.lang-btn { background:var(--surface); border:1px solid var(--border); color:var(--muted); border-radius:20px; padding:5px 16px; font-size:13px; cursor:pointer; transition:all .15s; }
-.lang-btn.active { background:rgba(108,99,255,.15); border-color:var(--accent); color:var(--accent); }
-.mode-cards { display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:680px; width:100%; margin-bottom:24px; }
-.mode-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:28px 24px; cursor:pointer; transition:all .2s; position:relative; }
-.mode-card:hover:not(.disabled) { border-color:var(--accent); background:rgba(108,99,255,.06); transform:translateY(-2px); }
-.mode-card.disabled { opacity:.5; cursor:not-allowed; }
-.mode-card .mc-icon { font-size:32px; margin-bottom:12px; }
-.mode-card .mc-title { font-size:16px; font-weight:700; margin-bottom:8px; }
-.mode-card .mc-desc { font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.6; }
-.mode-card .mc-reqs { font-size:12px; color:var(--muted); background:rgba(0,0,0,.2); border-radius:6px; padding:8px 12px; line-height:1.7; }
-.mode-card .mc-badge { position:absolute; top:16px; right:16px; font-size:10px; padding:3px 10px; border-radius:20px; }
-.mode-card .mc-badge.active { background:rgba(34,197,94,.15); color:var(--success); }
-.mode-card .mc-badge.soon { background:rgba(245,158,11,.15); color:var(--warn); }
-.enter-btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:12px 36px; font-size:15px; font-weight:600; cursor:pointer; transition:all .2s; }
-.enter-btn:hover { background:var(--accent-h); transform:translateY(-1px); }
 
 /* ── Toolbar ── */
 header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 20px; display:flex; align-items:center; gap:12px; height:52px; position:sticky; top:0; z-index:50; }
@@ -1260,7 +1273,7 @@ nav { background:var(--surface); border-bottom:1px solid var(--border); display:
 .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
 
 /* ── Main ── */
-main { padding:20px; max-width:980px; margin:0 auto; }
+main { padding:20px; max-width:1280px; margin:0 auto; }
 .panel { display:none; }
 .panel.active { display:block; }
 .sec-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
@@ -1281,6 +1294,37 @@ main { padding:20px; max-width:980px; margin:0 auto; }
 /* inline model selector */
 .inline-sel { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:5px 8px; font-size:12px; }
 .inline-sel:focus { outline:none; border-color:var(--accent); }
+
+/* Agents split layout */
+.agents-split { display:flex; gap:20px; height:calc(100vh - 160px); }
+.agents-left { flex:0 0 40%; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+.agents-right { flex:1; overflow-y:auto; padding-right:4px; }
+.agents-left-btns { display:flex; gap:8px; }
+.agents-left-btns .btn-primary { flex:1; }
+
+/* Add form */
+.add-form { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
+.add-form h3 { font-size:15px; margin-bottom:12px; font-weight:600; }
+.add-form .guide-box { background:rgba(108,99,255,.06); border:1px solid rgba(108,99,255,.2); border-radius:8px; padding:12px; margin-bottom:14px; font-size:12px; line-height:1.8; color:var(--muted); }
+.add-form .guide-box summary { cursor:pointer; font-weight:600; color:var(--text); font-size:13px; margin-bottom:6px; }
+.add-form .guide-box ol { margin:6px 0 0 18px; padding:0; }
+.add-form .guide-box li { margin-bottom:4px; }
+.add-form .guide-box code { background:rgba(255,255,255,.08); padding:1px 5px; border-radius:3px; font-size:11px; }
+
+/* Agent tree */
+.agent-tree-root { margin-bottom:16px; }
+.agent-tree-root .tree-main { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; cursor:pointer; }
+.agent-tree-root .tree-main:hover { border-color:var(--accent); }
+.agent-tree-root .tree-main .tree-title { font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; }
+.agent-tree-root .tree-main .tree-meta { font-size:11px; color:var(--muted); margin-top:4px; }
+.tree-children { margin-left:20px; border-left:2px solid var(--border); padding-left:14px; margin-top:6px; }
+.tree-child { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+.tree-child:hover { border-color:var(--accent); }
+.tree-child .tree-title { font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; }
+.tree-child .tree-meta { font-size:11px; color:var(--muted); margin-top:3px; }
+.tree-actions { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+.tree-actions select { font-size:12px; padding:4px 8px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); }
+.tree-actions button { font-size:11px; padding:4px 10px; }
 
 /* ── Buttons ── */
 button { cursor:pointer; font-size:13px; font-weight:500; border:none; border-radius:6px; padding:6px 13px; transition:all .15s; }
@@ -1415,57 +1459,13 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 
 const MAIN_HTML_BODY = String.raw`
 <!-- ═══════════════════════════════════════════════════════════ -->
-<!-- LANDING PAGE -->
-<!-- ═══════════════════════════════════════════════════════════ -->
-<div class="landing" id="landingPage">
-  <div class="landing-logo">🦀</div>
-  <div class="landing-title" id="l-title">OpenClaw Manager</div>
-  <div class="landing-sub" id="l-sub">选择运行模式</div>
-
-  <div class="landing-lang">
-    <button class="lang-btn active" id="lbtn-zh" onclick="setLandingLang('zh')">🇨🇳 中文</button>
-    <button class="lang-btn" id="lbtn-en" onclick="setLandingLang('en')">🇬🇧 English</button>
-  </div>
-
-  <div class="mode-cards">
-    <!-- Sub-agent Mode -->
-    <div class="mode-card" id="mc-sub" onclick="enterApp()">
-      <span class="mc-badge active" id="l-active-badge">可用</span>
-      <div class="mc-icon">🤖</div>
-      <div class="mc-title" id="l-sub-title">Sub-agent 模式</div>
-      <div class="mc-desc" id="l-sub-desc">通过主 Bot 账号绑定多个子 Agent 到不同群组，共用同一个 Token。</div>
-      <div class="mc-reqs" id="l-sub-reqs">
-        <strong>需要：</strong><br>
-        • Telegram Bot Token（主账号）<br>
-        • 各群组的 Group ID<br>
-        • 已安装 OpenClaw
-      </div>
-    </div>
-    <!-- Multi-agent Mode -->
-    <div class="mode-card disabled" id="mc-multi">
-      <span class="mc-badge soon" id="l-soon-badge">敬请期待</span>
-      <div class="mc-icon">🌐</div>
-      <div class="mc-title" id="l-multi-title">Multi-agent 模式</div>
-      <div class="mc-desc" id="l-multi-desc">为每个场景创建完全独立的 Bot，彻底隔离配置与对话历史。</div>
-      <div class="mc-reqs" id="l-multi-reqs">
-        <strong>需要：</strong><br>
-        • 每个 Bot 独立的 Token<br>
-        • 独立的 OpenClaw 配置目录<br>
-        • 独立的服务器进程
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════ -->
 <!-- MAIN APP -->
 <!-- ═══════════════════════════════════════════════════════════ -->
-<div id="mainApp" style="display:none">
+<div id="mainApp">
 
 <!-- Header / Toolbar -->
 <header>
-  <span class="logo" onclick="backToLanding()" title="返回选择">🦀 OpenClaw</span>
+  <span class="logo" title="OpenClaw Manager">🦀 OpenClaw</span>
   <span class="ver" id="versionBadge">v--</span>
   <div class="spacer"></div>
   <div id="healthBadge" title="">
@@ -1518,11 +1518,20 @@ const MAIN_HTML_BODY = String.raw`
 
   <!-- ══ Agents ════════════════════════════════════════════════ -->
   <div class="panel active" id="panel-agents">
-    <div class="sec-hdr">
-      <h2 data-i18n="agents.title">Agents</h2>
-      <button class="btn-primary" onclick="openCreateWizard()" data-i18n="agents.new">＋ 新建 Subagent</button>
+    <div class="agents-split">
+      <!-- Left: Add forms -->
+      <div class="agents-left">
+        <div class="agents-left-btns">
+          <button class="btn-primary" onclick="showAddForm('agent')" data-i18n="agents.addAgent">＋ Add Agent</button>
+          <button class="btn-primary" onclick="showAddForm('sub')" data-i18n="agents.addSub">＋ Add Sub-Agent</button>
+        </div>
+        <div id="addFormArea"></div>
+      </div>
+      <!-- Right: Agent tree -->
+      <div class="agents-right">
+        <div id="agentTree"><div class="empty" data-i18n="agents.empty">No Agents</div></div>
+      </div>
     </div>
-    <div class="card-grid" id="agentList"><div class="empty">加载中...</div></div>
   </div>
 
   <!-- ══ Channels ══════════════════════════════════════════════ -->
@@ -1651,74 +1660,6 @@ const MAIN_HTML_BODY = String.raw`
   </div>
 </div>
 </div>
-
-<!-- ══ 向导: 新建 Subagent ══════════════════════════════════ -->
-<div class="backdrop" id="createModal">
-<div class="modal">
-  <div class="m-hdr"><h3 data-i18n="wiz.title">新建 Subagent</h3><button class="m-close" onclick="closeModal('createModal')">✕</button></div>
-  <div class="m-body">
-    <div class="steps">
-      <div class="step active" id="si1" data-i18n="wiz.s1">1 基本信息</div>
-      <div class="step" id="si2" data-i18n="wiz.s2">2 模型</div>
-      <div class="step" id="si3" data-i18n="wiz.s3">3 性格&记忆</div>
-      <div class="step" id="si4" data-i18n="wiz.s4">4 确认</div>
-    </div>
-    <div class="step-page active" id="sp1">
-      <div class="form-group">
-        <label data-i18n="wiz.groupId">Telegram 群组 ID</label>
-        <input id="f-gid" placeholder="-100XXXXXXXXXX" oninput="autoFillId()">
-        <span class="hint-text" data-i18n="wiz.groupHint">💡 在群内发一条消息，在网关终端日志里找 peer.id（负数）</span>
-        <span class="field-err" id="e-gid"></span>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label><span data-i18n="wiz.agentId">Agent ID</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.agentIdHint">（纯英文）</span></label>
-          <input id="f-aid" data-i18n-placeholder="wiz.agentIdPh" placeholder="my_bot" oninput="validateId()">
-          <span class="field-err" id="e-aid"></span>
-        </div>
-        <div class="form-group">
-          <label data-i18n="wiz.displayName">显示名称</label>
-          <input id="f-name" data-i18n-placeholder="wiz.displayNamePh" placeholder="我的助手">
-        </div>
-      </div>
-      <div class="form-group">
-        <label><span data-i18n="wiz.workspace">Workspace 文件夹</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.workspaceHint">（留空=Agent ID）</span></label>
-        <input id="f-folder" data-i18n-placeholder="wiz.workspacePh" placeholder="自动">
-      </div>
-      <div class="form-group">
-        <label data-i18n="wiz.purpose">Agent 用途描述</label>
-        <textarea id="f-purpose" data-i18n-placeholder="wiz.purposePh" placeholder="例如：专注于 Linux 和网络运维，帮助群成员快速解决技术故障。"></textarea>
-      </div>
-    </div>
-    <div class="step-page" id="sp2">
-      <div class="form-group">
-        <label><span data-i18n="wiz.model">选择模型</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.modelHint">（不选则沿用全局默认）</span></label>
-        <select id="f-model"></select>
-      </div>
-      <div id="curDefault" class="notes" style="font-size:12px;margin-top:4px"></div>
-    </div>
-    <div class="step-page" id="sp3">
-      <div class="form-group">
-        <label><span data-i18n="wiz.soul">性格关键词</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.soulHint">（逗号分隔，选填）</span></label>
-        <input id="f-soul" data-i18n-placeholder="wiz.soulPh" placeholder="幽默、直接、有条理...">
-        <span class="hint-text" data-i18n="wiz.soulTip">留空则使用默认成长型提示词（推荐）</span>
-      </div>
-      <div class="form-group">
-        <label><span data-i18n="wiz.memory">初始记忆</span> <span style="color:var(--muted);font-weight:400" data-i18n="wiz.memoryHint">（MEMORY.md，选填）</span></label>
-        <textarea id="f-mem" data-i18n-placeholder="wiz.memoryPh" placeholder="例如：群组主要用中文交流。用户偏好简洁回复。"></textarea>
-      </div>
-    </div>
-    <div class="step-page" id="sp4">
-      <div class="notes" id="previewBox" style="font-size:13px;line-height:1.8"></div>
-      <div id="createResult" style="margin-top:12px"></div>
-    </div>
-  </div>
-  <div class="m-foot">
-    <button class="btn-ghost" id="wBack" onclick="wizStep(-1)" style="display:none" data-i18n="wiz.back">← 上一步</button>
-    <button class="btn-secondary" onclick="closeModal('createModal')" data-i18n="btn.cancel">取消</button>
-    <button class="btn-primary" id="wNext" onclick="wizStep(1)" data-i18n="wiz.next">下一步 →</button>
-  </div>
-</div></div>
 
 <!-- ══ 添加 Channel 绑定 ══════════════════════════════════════ -->
 <div class="backdrop" id="addChannelModal">
@@ -1978,6 +1919,19 @@ const I18N = {
     'actions.setupEmpty':'请填写路径','actions.setupSwitching':'目录已切换，正在刷新...','actions.setupInvalid':'路径无效','actions.setupReqFail':'请求失败: ',
     'common.loading':'加载中...','common.close':'关闭',
     'btn.save':'保存','btn.delete':'删除','btn.cancel':'取消','btn.add':'添加','btn.remove':'移除',
+    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent',
+    'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
+    'agents.botToken':'Bot Token','agents.botName':'Bot Name','agents.botNamePh':'My Bot',
+    'agents.addAgentSubmit':'Create Agent','agents.addSubSubmit':'Create Sub-Agent',
+    'agents.errToken':'Please enter Bot Token','agents.errName':'Please enter Bot name',
+    'agents.agentCreated':'✅ Agent created',
+    'guide.title':'📖 Setup Guide','guide.agent.s1':'Open Telegram, search for <code>@BotFather</code>',
+    'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
+    'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
+    'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
+    'guide.sub.s1':'Add the Bot to your target Telegram group',
+    'guide.sub.s2':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
+    'guide.sub.s3':'Fill in the Group ID and Agent config below',
     'agents.empty':'暂无 Agent','agents.main':'主 Agent','agents.bound':'已绑群',
     'agents.saveModel':'保存模型','agents.viewFiles':'查看文件',
     'agents.defaultModel':'使用全局默认','agents.custom':'自定义','agents.noModel':'默认',
@@ -2071,6 +2025,19 @@ const I18N = {
     'actions.setupEmpty':'Please enter a path','actions.setupSwitching':'Directory switched, refreshing...','actions.setupInvalid':'Invalid path','actions.setupReqFail':'Request failed: ',
     'common.loading':'Loading...','common.close':'Close',
     'btn.save':'Save','btn.delete':'Delete','btn.cancel':'Cancel','btn.add':'Add','btn.remove':'Remove',
+    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent',
+    'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
+    'agents.botToken':'Bot Token','agents.botName':'Bot Name','agents.botNamePh':'My Bot',
+    'agents.addAgentSubmit':'Create Agent','agents.addSubSubmit':'Create Sub-Agent',
+    'agents.errToken':'Please enter Bot Token','agents.errName':'Please enter Bot name',
+    'agents.agentCreated':'✅ Agent created',
+    'guide.title':'📖 Setup Guide','guide.agent.s1':'Open Telegram, search for <code>@BotFather</code>',
+    'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
+    'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
+    'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
+    'guide.sub.s1':'Add the Bot to your target Telegram group',
+    'guide.sub.s2':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
+    'guide.sub.s3':'Fill in the Group ID and Agent config below',
     'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
     'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
     'agents.defaultModel':'Use Global Default','agents.custom':'custom','agents.noModel':'Default',
@@ -2187,53 +2154,6 @@ const LANDING_TEXT = {
     enterBtn: 'Enter Sub-agent Mode →',
   },
 };
-let landingLang = LS.get('ocm_lang', 'zh');
-function setLandingLang(l) {
-  try {
-    landingLang = l;
-    lang = l;
-    LS.set('ocm_lang', l);
-    document.getElementById('lbtn-zh').className = 'lang-btn' + (l === 'zh' ? ' active' : '');
-    document.getElementById('lbtn-en').className = 'lang-btn' + (l === 'en' ? ' active' : '');
-    const tx = LANDING_TEXT[l] || LANDING_TEXT.zh;
-    document.getElementById('l-sub').textContent = tx.sub;
-    document.getElementById('l-active-badge').textContent = tx.activeBadge;
-    document.getElementById('l-soon-badge').textContent = tx.soonBadge;
-    document.getElementById('l-sub-title').textContent = tx.subTitle;
-    document.getElementById('l-sub-desc').textContent = tx.subDesc;
-    document.getElementById('l-sub-reqs').innerHTML = tx.subReqs;
-    document.getElementById('l-multi-title').textContent = tx.multiTitle;
-    document.getElementById('l-multi-desc').textContent = tx.multiDesc;
-    document.getElementById('l-multi-reqs').innerHTML = tx.multiReqs;
-  } catch(e) { console.error('setLandingLang error:', e); }
-}
-function enterApp() {
-  try {
-    document.getElementById('landingPage').style.display = 'none';
-    document.getElementById('mainApp').style.display = '';
-    applyLang();
-    checkStatus().then(() => loadAll());
-    startHealthPolling();
-  } catch(e) {
-    console.error('enterApp error:', e);
-    const lp = document.getElementById('landingPage');
-    const ma = document.getElementById('mainApp');
-    if(lp) lp.style.display = 'none';
-    if(ma) ma.style.display = '';
-    checkStatus().then(() => loadAll()).catch(console.error);
-  }
-}
-function backToLanding() {
-  document.getElementById('landingPage').style.display = 'flex';
-  document.getElementById('mainApp').style.display = 'none';
-}
-
-// On load: always show landing page（清除可能残留的旧 ocm_mode 值）
-(function() {
-  LS.del('ocm_mode');
-  try { setLandingLang(landingLang); } catch(e) { console.error('Landing init error:', e); }
-})();
-
 // ── 全局状态 ────────────────────────────────────────────────
 let S = { agents:[], channels:[], models:{}, authProfiles:{}, knownModels:[], authProviders:[], primaryModel:'', fallbacks:[] };
 let wizCur = 1;
@@ -2301,29 +2221,180 @@ async function loadChannels(){
 }
 
 // ── 渲染 Agents ─────────────────────────────────────────────
-function renderAgents(){
-  const el=document.getElementById('agentList');
-  if(!S.agents.length){el.innerHTML='<div class="empty">'+t('agents.empty')+'</div>';return;}
-  el.innerHTML=S.agents.map(a=>{
-    const isMain=a.id==='main';
-    const selOpts=buildModelOpts(a.effectiveModel!=='默认'?a.effectiveModel:'__default__');
-    return \`<div class="card">
-      <div class="card-row">
-        <span class="card-title">\${esc(a.name||a.id)}</span>
-        <span class="badge \${isMain?'main':''}">\${isMain?t('agents.main'):'subagent'}</span>
-        \${a.groupId?'<span class="badge ok">'+t('agents.bound')+'</span>':''}
-      </div>
-      \${a.groupId?\`<div class="card-meta">📱 \${esc(a.groupId)}</div>\`:''}
-      <div class="card-meta">🧠 <span id="eml-\${a.id}">\${esc(a.effectiveModel)}</span></div>
-      \${a.workspace?\`<div class="card-meta" style="font-size:11px">📁 \${esc(a.workspace)}</div>\`:''}
-      <div class="card-actions">
-        <select class="inline-sel" id="msel-\${a.id}" onchange="">\${selOpts}</select>
-        <button class="btn-secondary" onclick="saveAgentModel('\${a.id}')">\${t('agents.saveModel')}</button>
-        \${!isMain?\`<button class="btn-secondary" onclick="viewWorkspace('\${a.id}')">\${t('agents.viewFiles')}</button>
-        <button class="btn-danger" onclick="deleteAgent('\${a.id}','\${esc(a.name||a.id)}')">\${t('btn.delete')}</button>\`:''}
-      </div>
-    </div>\`;
-  }).join('');
+// ── Show Add Form ─────────────────────────────────────────────
+function clearAddForm() { document.getElementById('addFormArea').innerHTML = ''; }
+function showAddForm(type) {
+  const area = document.getElementById('addFormArea');
+  if (type === 'agent') {
+    area.innerHTML = buildAddAgentForm();
+  } else {
+    area.innerHTML = buildAddSubForm();
+  }
+  applyLang();
+}
+
+function buildAddAgentForm() {
+  const modelOpts = buildModelOpts('__default__');
+  return '<div class="add-form">' +
+    '<h3>' + t('agents.addAgentTitle') + '</h3>' +
+    '<details class="guide-box" open><summary>' + t('guide.title') + '</summary><ol>' +
+    '<li>' + t('guide.agent.s1') + '</li>' +
+    '<li>' + t('guide.agent.s2') + '</li>' +
+    '<li>' + t('guide.agent.s3') + '</li>' +
+    '<li>' + t('guide.agent.s4') + '</li>' +
+    '</ol></details>' +
+    '<div class="form-group"><label>' + t('agents.botToken') + '</label>' +
+    '<input id="fa-token" type="text" placeholder="123456:ABC-DEF...">' +
+    '</div>' +
+    '<div class="form-group"><label>' + t('agents.botName') + '</label>' +
+    '<input id="fa-name" type="text" placeholder="' + t('agents.botNamePh') + '">' +
+    '</div>' +
+    '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
+    '<select id="fa-model">' + modelOpts + '</select>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:14px">' +
+    '<button class="btn-primary" onclick="submitAddAgent()">' + t('agents.addAgentSubmit') + '</button>' +
+    '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
+    '</div></div>';
+}
+
+function buildAddSubForm() {
+  // Build parent agent dropdown (only main agents)
+  const cfg = S.agents || [];
+  const mainAgent = cfg.find(a => a.id === 'main');
+  const parentOpts = mainAgent ? '<option value="main">' + esc(mainAgent.name || 'main') + '</option>' : '<option value="main">main</option>';
+  const modelOpts = buildModelOpts('__default__');
+  return '<div class="add-form">' +
+    '<h3>' + t('agents.addSubTitle') + '</h3>' +
+    '<details class="guide-box" open><summary>' + t('guide.title') + '</summary><ol>' +
+    '<li>' + t('guide.sub.s1') + '</li>' +
+    '<li>' + t('guide.sub.s2') + '</li>' +
+    '<li>' + t('guide.sub.s3') + '</li>' +
+    '</ol></details>' +
+    '<div class="form-group"><label>' + t('wiz.groupId') + '</label>' +
+    '<input id="fs-gid" placeholder="-100XXXXXXXXXX">' +
+    '<span class="hint-text">' + t('wiz.groupHint') + '</span></div>' +
+    '<div class="form-row">' +
+    '<div class="form-group"><label>' + t('wiz.agentId') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.agentIdHint') + '</span></label>' +
+    '<input id="fs-aid" placeholder="' + t('wiz.agentIdPh') + '"></div>' +
+    '<div class="form-group"><label>' + t('wiz.displayName') + '</label>' +
+    '<input id="fs-name" placeholder="' + t('wiz.displayNamePh') + '"></div></div>' +
+    '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
+    '<select id="fs-model">' + modelOpts + '</select></div>' +
+    '<div class="form-group"><label>' + t('wiz.purpose') + '</label>' +
+    '<textarea id="fs-purpose" placeholder="' + t('wiz.purposePh') + '" rows="2"></textarea></div>' +
+    '<div class="form-group"><label>' + t('wiz.soul') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.soulHint') + '</span></label>' +
+    '<input id="fs-soul" placeholder="' + t('wiz.soulPh') + '"></div>' +
+    '<div class="form-group"><label>' + t('wiz.memory') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.memoryHint') + '</span></label>' +
+    '<textarea id="fs-mem" placeholder="' + t('wiz.memoryPh') + '" rows="2"></textarea></div>' +
+    '<div style="display:flex;gap:8px;margin-top:14px">' +
+    '<button class="btn-primary" onclick="submitAddSub()">' + t('agents.addSubSubmit') + '</button>' +
+    '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
+    '</div></div>';
+}
+
+// ── Submit Add Agent (Main Bot) ──────────────────────────────
+async function submitAddAgent() {
+  const token = document.getElementById('fa-token').value.trim();
+  const name = document.getElementById('fa-name').value.trim();
+  const model = document.getElementById('fa-model').value;
+  if (!token) { toast(t('agents.errToken'), 'err'); return; }
+  if (!name) { toast(t('agents.errName'), 'err'); return; }
+  try {
+    const r = await api('POST', '/api/agents/main', { botToken: token, name, model: model === '__default__' ? '' : model });
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast(t('agents.agentCreated'), 'ok');
+    document.getElementById('addFormArea').innerHTML = '';
+    showRestartBanner();
+    await loadAll();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ── Submit Add Sub-Agent ────────────────────────────────────
+async function submitAddSub() {
+  const groupId = document.getElementById('fs-gid').value.trim();
+  const agentId = document.getElementById('fs-aid').value.trim();
+  const displayName = document.getElementById('fs-name').value.trim();
+  const model = document.getElementById('fs-model').value;
+  const purpose = document.getElementById('fs-purpose').value.trim();
+  const personality = document.getElementById('fs-soul').value.trim();
+  const initialMemory = document.getElementById('fs-mem').value.trim();
+  if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
+  if (!agentId) { toast(t('wiz.errAgentId'), 'err'); return; }
+  if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast(t('wiz.errIdFormat'), 'err'); return; }
+  if (agentId.toLowerCase() === 'main') { toast(t('wiz.errIdReserved'), 'err'); return; }
+  try {
+    const r = await api('POST', '/api/agents', { agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory });
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast(t('wiz.created'), 'ok');
+    document.getElementById('addFormArea').innerHTML = '';
+    showRestartBanner();
+    await loadAll();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ── Render Agent Tree ──────────────────────────────────────
+function renderAgents() {
+  const el = document.getElementById('agentTree');
+  if (!S.agents.length) { el.innerHTML = '<div class="empty">' + t('agents.empty') + '</div>'; return; }
+
+  // Build tree: main agent as root, subagents as children
+  const mainAgent = S.agents.find(a => a.id === 'main');
+  const subs = S.agents.filter(a => a.id !== 'main');
+
+  let html = '';
+
+  // Main agent tree
+  if (mainAgent) {
+    html += '<div class="agent-tree-root">';
+    html += '<div class="tree-main">';
+    html += '<div class="tree-title">🤖 ' + esc(mainAgent.name || 'main') + ' <span class="badge main">' + t('agents.main') + '</span></div>';
+    html += '<div class="tree-meta">🧠 ' + esc(mainAgent.effectiveModel) + '</div>';
+    if (mainAgent.workspace) html += '<div class="tree-meta">📁 ' + esc(mainAgent.workspace) + '</div>';
+    html += '<div class="tree-actions">';
+    html += '<select class="inline-sel" id="msel-main" onchange="">' + buildModelOpts(mainAgent.effectiveModel !== t('agents.noModel') ? mainAgent.effectiveModel : '__default__') + '</select>';
+    html += '<button class="btn-secondary" onclick="saveAgentModel(\\'main\\')">' + t('agents.saveModel') + '</button>';
+    html += '</div></div>';
+
+    // Sub-agents as children
+    if (subs.length) {
+      html += '<div class="tree-children">';
+      subs.forEach(a => {
+        html += '<div class="tree-child">';
+        html += '<div class="tree-title">📱 ' + esc(a.name || a.id);
+        if (a.groupId) html += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
+        html += '</div>';
+        html += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
+        if (a.workspace) html += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
+        html += '<div class="tree-actions">';
+        html += '<select class="inline-sel" id="msel-' + a.id + '" onchange="">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
+        html += '<button class="btn-secondary" onclick="saveAgentModel(\\'' + a.id + '\\')">' + t('agents.saveModel') + '</button>';
+        html += '<button class="btn-secondary" onclick="viewWorkspace(\\'' + a.id + '\\')">' + t('agents.viewFiles') + '</button>';
+        html += '<button class="btn-danger" onclick="deleteAgent(\\'' + a.id + '\\',\\'' + esc(a.name || a.id) + '\\')">' + t('btn.delete') + '</button>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  } else if (subs.length) {
+    // No main agent but has subs (edge case)
+    subs.forEach(a => {
+      html += '<div class="agent-tree-root"><div class="tree-child">';
+      html += '<div class="tree-title">📱 ' + esc(a.name || a.id);
+      if (a.groupId) html += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
+      html += '</div>';
+      html += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
+      if (a.workspace) html += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
+      html += '<div class="tree-actions">';
+      html += '<select class="inline-sel" id="msel-' + a.id + '" onchange="">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
+      html += '<button class="btn-secondary" onclick="saveAgentModel(\\'' + a.id + '\\')">' + t('agents.saveModel') + '</button>';
+      html += '<button class="btn-secondary" onclick="viewWorkspace(\\'' + a.id + '\\')">' + t('agents.viewFiles') + '</button>';
+      html += '<button class="btn-danger" onclick="deleteAgent(\\'' + a.id + '\\',\\'' + esc(a.name || a.id) + '\\')">' + t('btn.delete') + '</button>';
+      html += '</div></div></div>';
+    });
+  }
+
+  el.innerHTML = html;
 }
 
 function buildModelOpts(selected){
@@ -2633,107 +2704,6 @@ function copyText(txt){
   navigator.clipboard.writeText(txt).then(()=>toast('已复制','success')).catch(()=>toast('复制失败','error'));
 }
 
-// ── 向导: 新建 Agent ─────────────────────────────────────────
-function openCreateWizard(){
-  wizCur=1;
-  ['f-gid','f-aid','f-name','f-folder','f-purpose','f-soul','f-mem'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value='';
-  });
-  document.getElementById('createResult').innerHTML='';
-  buildWizModelSel(); updateWizUI(); openModal('createModal'); applyLang();
-}
-function buildWizModelSel(){
-  const sel=document.getElementById('f-model');
-  sel.innerHTML=\`<option value="__default__">\${t('agents.defaultModel')} (\${S.primaryModel})</option>\`;
-  S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
-    sel.innerHTML+=\`<option value="\${m.id}">\${m.label}</option>\`;
-  });
-}
-function wizStep(d){
-  if(d===1){
-    if(!validateWizStep(wizCur))return;
-    if(wizCur===4){submitCreateAgent();return;}
-    wizCur++;
-    if(wizCur===4)buildPreview();
-  } else { wizCur=Math.max(1,wizCur-1); }
-  updateWizUI();
-}
-function updateWizUI(){
-  for(let i=1;i<=4;i++){
-    document.getElementById('sp'+i).className='step-page'+(i===wizCur?' active':'');
-    document.getElementById('si'+i).className='step'+(i===wizCur?' active':i<wizCur?' done':'');
-  }
-  document.getElementById('wBack').style.display=wizCur>1?'':'none';
-  document.getElementById('wNext').textContent=wizCur===4?t('wiz.confirm'):t('wiz.next');
-}
-function validateWizStep(step){
-  if(step!==1)return true;
-  let ok=true;
-  const gid=document.getElementById('f-gid').value.trim();
-  const aid=document.getElementById('f-aid').value.trim();
-  const ge=document.getElementById('e-gid'); const ae=document.getElementById('e-aid');
-  if(!gid){ge.textContent=t('wiz.errGroupId');ok=false;}else ge.textContent='';
-  if(!aid){ae.textContent=t('wiz.errAgentId');ok=false;}
-  else if(!/^[a-zA-Z0-9_-]+$/.test(aid)){ae.textContent=t('wiz.errIdFormat');ok=false;}
-  else if(aid.toLowerCase()==='main'){ae.textContent=t('wiz.errIdReserved');ok=false;}
-  else if(S.agents.find(a=>a.id===aid)){ae.textContent=t('wiz.errIdDup');ok=false;}
-  else ae.textContent='';
-  return ok;
-}
-function autoFillId(){
-  const aid=document.getElementById('f-aid');
-  if(!aid.value){
-    const gid=document.getElementById('f-gid').value.replace(/[^0-9]/g,'').slice(-6);
-    if(gid) aid.value='agent_'+gid;
-  }
-}
-function validateId(){
-  const v=document.getElementById('f-aid').value;
-  const e=document.getElementById('e-aid');
-  if(!v){e.textContent='';return;}
-  if(!/^[a-zA-Z0-9_-]+$/.test(v)) e.textContent=t('wiz.errIdFormat');
-  else if(v.toLowerCase()==='main') e.textContent=t('wiz.errIdReserved');
-  else e.textContent='';
-}
-function buildPreview(){
-  const aid=document.getElementById('f-aid').value.trim();
-  const name=document.getElementById('f-name').value.trim()||aid;
-  const gid=document.getElementById('f-gid').value.trim();
-  const folder=document.getElementById('f-folder').value.trim()||aid;
-  const model=document.getElementById('f-model').value;
-  const soul=document.getElementById('f-soul').value.trim();
-  document.getElementById('previewBox').innerHTML=\`
-    <strong>\${t('wiz.preview')}</strong><br>
-    🤖 Agent: <code>\${aid}</code> (\${esc(name)})<br>
-    📱 \${t('wiz.group')}: <code>\${gid}</code><br>
-    🧠 \${t('wiz.modelLabel')}: \${model==='__default__'?t('wiz.globalDefault')+' ('+S.primaryModel+')':model}<br>
-    📁 Workspace: <code>~/.openclaw/workspaces/\${folder}</code><br><br>
-    <strong>SOUL.md：</strong> \${soul?t('wiz.soulYes'):t('wiz.soulDefault')}<br>
-    \${t('wiz.autoBackup')}
-  \`;
-}
-async function submitCreateAgent(){
-  const btn=document.getElementById('wNext');
-  btn.disabled=true; btn.textContent=t('wiz.creating');
-  try{
-    const r=await api('POST','/api/agents',{
-      agentId:document.getElementById('f-aid').value.trim(),
-      displayName:document.getElementById('f-name').value.trim(),
-      groupId:document.getElementById('f-gid').value.trim(),
-      workspaceFolder:document.getElementById('f-folder').value.trim(),
-      model:document.getElementById('f-model').value,
-      purpose:document.getElementById('f-purpose').value.trim(),
-      personality:document.getElementById('f-soul').value.trim(),
-      initialMemory:document.getElementById('f-mem').value.trim(),
-    });
-    document.getElementById('createResult').innerHTML=
-      \`<div class="notes"><ul>\${r.notes.map(n=>\`<li>\${n}</li>\`).join('')}</ul></div>\`;
-    btn.textContent=t('wiz.created'); btn.disabled=false;
-    await loadAgents(); await loadChannels(); showRestartBanner();
-    setTimeout(()=>closeModal('createModal'),3500);
-    toast('Subagent '+r.agentId+' 创建成功！','success');
-  }catch(e){toast('创建失败: '+e.message,'error'); btn.disabled=false; btn.textContent='✅ 确认创建';}
-}
 
 async function deleteAgent(agentId, name){
   if(!confirm(\`确定要删除 Agent "\${name}"？\\n\\n• 将从 openclaw.json 移除（自动备份）\\n• Workspace 目录不删除\\n• 可通过"回滚"功能恢复配置\\n\\n继续？\`))return;
@@ -3421,7 +3391,15 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='stats') loadStats();
     if(t.dataset.tab==='cron') loadCrons();
   });
-});`;
+});
+
+// ── On load: initialize app ──────────────────────────────────
+(function() {
+  LS.del('ocm_mode');
+  applyLang();
+  checkStatus().then(() => loadAll()).catch(e => console.error('Init error:', e));
+  startHealthPolling();
+})();`;
 
 const MAIN_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
