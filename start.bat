@@ -1,6 +1,6 @@
 @echo off
 :: ================================================================
-:: OpenClaw Manager v0.5 — Windows 启动脚本
+:: OpenClaw Manager v0.5.1 — Windows 启动脚本
 ::
 :: 特性：
 ::   * 自动检测 Node.js，未安装时给出安装指引（winget/scoop/官网）
@@ -19,7 +19,7 @@ set "MIN_NODE_MAJOR=18"
 
 echo.
 echo   ===================================
-echo      OpenClaw Manager  v0.5
+echo      OpenClaw Manager  v0.5.1
 echo   -----------------------------------
 echo.
 

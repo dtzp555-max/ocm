@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.5.0
+// OpenClaw Manager v0.5.1
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
@@ -22,6 +22,7 @@ const { exec, execSync, spawn, spawnSync } = require('child_process');
 const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
+const APP_VERSION = '0.5.1';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -1180,14 +1181,7 @@ document.getElementById('dir').addEventListener('keydown',e=>{if(e.key==='Enter'
 </script></body></html>`;
 
 // ── 主 HTML 前端 ──────────────────────────────────────────────
-const MAIN_HTML = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenClaw Manager</title>
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+const MAIN_HTML_CSS = String.raw`*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
   --accent: #6c63ff; --accent-h: #7c74ff;
@@ -1400,11 +1394,9 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 /* Manage favs modal list */
 .fav-manage-row { display:flex; align-items:center; gap:6px; padding:7px 0; border-bottom:1px solid var(--border); }
 .fav-manage-label { flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fav-manage-cmd { font-size:11px; color:var(--muted); font-family:monospace; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-</style>
-</head>
-<body>
+.fav-manage-cmd { font-size:11px; color:var(--muted); font-family:monospace; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }`;
 
+const MAIN_HTML_BODY = String.raw`
 <!-- ═══════════════════════════════════════════════════════════ -->
 <!-- LANDING PAGE -->
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -1791,29 +1783,29 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 <!-- ══ 日志查看 ══════════════════════════════════════════════ -->
 <div class="backdrop" id="logModal">
 <div class="modal wide">
-  <div class="m-hdr"><h3>📋 Gateway 日志</h3><button class="m-close" onclick="closeLogs()">✕</button></div>
+  <div class="m-hdr"><h3 data-i18n="actions.logsTitle">📋 Gateway 日志</h3><button class="m-close" onclick="closeLogs()">✕</button></div>
   <div class="m-body">
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
-      <button class="btn-secondary" onclick="refreshLogs()">🔄 刷新</button>
+      <button class="btn-secondary" onclick="refreshLogs()" data-i18n="actions.refresh">🔄 刷新</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()" style="width:auto"> 自动刷新（2s）
+        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()" style="width:auto"> <span data-i18n="actions.autoRefresh">自动刷新（2s）</span>
       </label>
       <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="logPath"></span>
     </div>
-    <div class="log-box" id="logContent">加载中...</div>
+    <div class="log-box" id="logContent" data-i18n="common.loading">加载中...</div>
   </div>
-  <div class="m-foot"><button class="btn-secondary" onclick="closeLogs()">关闭</button></div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeLogs()" data-i18n="common.close">关闭</button></div>
 </div></div>
 
 <!-- ══ 回滚 ════════════════════════════════════════════════ -->
 <div class="backdrop" id="rollbackModal">
 <div class="modal">
-  <div class="m-hdr"><h3>📦 备份 / 回滚</h3><button class="m-close" onclick="closeModal('rollbackModal')">✕</button></div>
+  <div class="m-hdr"><h3 data-i18n="actions.rollbackTitle">📦 备份 / 回滚</h3><button class="m-close" onclick="closeModal('rollbackModal')">✕</button></div>
   <div class="m-body">
-    <p class="hint-text" style="margin-bottom:12px">选择一个备份文件恢复。恢复前会自动保存当前配置。</p>
-    <div class="card-grid" id="backupList"><div class="empty">加载中...</div></div>
+    <p class="hint-text" style="margin-bottom:12px" data-i18n="actions.rollbackHint">选择一个备份文件恢复。恢复前会自动保存当前配置。</p>
+    <div class="card-grid" id="backupList"><div class="empty" data-i18n="common.loading">加载中...</div></div>
   </div>
-  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('rollbackModal')">关闭</button></div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('rollbackModal')" data-i18n="common.close">关闭</button></div>
 </div></div>
 
 <!-- ══ NAS 备份设置 ════════════════════════════════════════ -->
@@ -1898,27 +1890,27 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 <!-- ══ 目录设置 ════════════════════════════════════════════ -->
 <div class="backdrop" id="setupModal">
 <div class="modal">
-  <div class="m-hdr"><h3>⚙️ 切换 OpenClaw 目录</h3><button class="m-close" onclick="closeModal('setupModal')">✕</button></div>
+  <div class="m-hdr"><h3 data-i18n="actions.setupTitle">⚙️ 切换 OpenClaw 目录</h3><button class="m-close" onclick="closeModal('setupModal')">✕</button></div>
   <div class="m-body">
-    <div class="form-group"><label>OpenClaw 数据目录路径</label>
-      <input id="setup-dir" placeholder="~/.openclaw 或绝对路径"></div>
+    <div class="form-group"><label data-i18n="actions.setupLabel">OpenClaw 数据目录路径</label>
+      <input id="setup-dir" data-i18n-placeholder="actions.setupPlaceholder" placeholder="~/.openclaw 或绝对路径"></div>
     <div class="field-err" id="setup-err"></div>
-    <p class="hint-text" style="margin-top:6px">需要包含 openclaw.json 的文件夹。更换后页面自动刷新。</p>
+    <p class="hint-text" style="margin-top:6px" data-i18n="actions.setupHint">需要包含 openclaw.json 的文件夹。更换后页面自动刷新。</p>
   </div>
   <div class="m-foot">
-    <button class="btn-secondary" onclick="closeModal('setupModal')">取消</button>
-    <button class="btn-primary" onclick="submitSetup()">确认切换</button>
+    <button class="btn-secondary" onclick="closeModal('setupModal')" data-i18n="btn.cancel">取消</button>
+    <button class="btn-primary" onclick="submitSetup()" data-i18n="actions.setupConfirm">确认切换</button>
   </div>
 </div></div>
 
 <!-- ══ 命令输出 ════════════════════════════════════════════ -->
 <div class="backdrop" id="cmdModal">
 <div class="modal">
-  <div class="m-hdr"><h3 id="cmdTitle">输出</h3><button class="m-close" onclick="closeModal('cmdModal')">✕</button></div>
+  <div class="m-hdr"><h3 id="cmdTitle" data-i18n="actions.outputTitle">输出</h3><button class="m-close" onclick="closeModal('cmdModal')">✕</button></div>
   <div class="m-body">
     <div class="log-box" id="cmdOutput" style="max-height:260px">...</div>
   </div>
-  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('cmdModal')">关闭</button></div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('cmdModal')" data-i18n="common.close">关闭</button></div>
 </div></div>
 
 <!-- Workspace 文件浏览器 -->
@@ -1926,14 +1918,13 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 <div class="modal wide" style="max-width:780px">
   <div class="m-hdr"><h3 data-i18n="ws.title">📂 Workspace 文件</h3><button class="m-close" onclick="closeModal('wsModal')">✕</button></div>
   <div class="m-body" id="wsContent" style="max-height:70vh;overflow-y:auto"></div>
-  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('wsModal')" data-i18n="btn.cancel">关闭</button></div>
+  <div class="m-foot"><button class="btn-secondary" onclick="closeModal('wsModal')" data-i18n="common.close">关闭</button></div>
 </div></div>
 
 <!-- Toast -->
-<div id="toast" style="position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px"></div>
+<div id="toast" style="position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px"></div>`;
 
-<script>
-// ── i18n ──────────────────────────────────────────────────────
+const MAIN_HTML_SCRIPT = `// ── i18n ──────────────────────────────────────────────────────
 const I18N = {
   zh: {
     'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 模型','tab.auth':'🔑 认证',
@@ -1955,6 +1946,20 @@ const I18N = {
     'menu.ops':'操作','menu.restart':'重启 Gateway','menu.logs':'实时日志','menu.backup':'手动备份配置',
     'menu.rollback':'查看备份 / 回滚','menu.nas':'NAS 备份设置','menu.doctor':'健康检查',
     'menu.opendir':'打开配置目录','menu.switchdir':'切换 OpenClaw 目录',
+    'actions.logsTitle':'📋 Gateway 日志','actions.refresh':'🔄 刷新','actions.autoRefresh':'自动刷新（2s）',
+    'actions.outputTitle':'输出','actions.rollbackTitle':'📦 备份 / 回滚','actions.rollbackHint':'选择一个备份文件恢复。恢复前会自动保存当前配置。',
+    'actions.restoreThis':'⏪ 恢复此备份','actions.setupTitle':'⚙️ 切换 OpenClaw 目录','actions.setupLabel':'OpenClaw 数据目录路径',
+    'actions.setupPlaceholder':'~/.openclaw 或绝对路径','actions.setupHint':'需要包含 openclaw.json 的文件夹。更换后页面自动刷新。','actions.setupConfirm':'确认切换',
+    'actions.restartTitle':'重启 Gateway','actions.doctorTitle':'健康检查 (doctor)','actions.running':'执行中...','actions.noOutput':'（无输出）',
+    'actions.restartSent':'重启命令已发送。','actions.restartOk':'Gateway 已重启','actions.restartFail':'重启失败: ',
+    'actions.restartManualHint':'请在终端手动运行:\\nopenclaw gateway restart',
+    'actions.backupSaved':'备份已保存: ','actions.backupFail':'备份失败: ',
+    'actions.logEmpty':'（空）','actions.logLoadFail':'加载失败: ',
+    'actions.noBackups':'暂无备份文件','actions.loadFailed':'加载失败',
+    'actions.restoreConfirm':'确认将配置恢复为：\\n{filename}\\n\\n当前配置将先被自动备份。继续？',
+    'actions.restored':'已恢复 ','actions.restoreFail':'恢复失败: ',
+    'actions.setupEmpty':'请填写路径','actions.setupSwitching':'目录已切换，正在刷新...','actions.setupInvalid':'路径无效','actions.setupReqFail':'请求失败: ',
+    'common.loading':'加载中...','common.close':'关闭',
     'btn.save':'保存','btn.delete':'删除','btn.cancel':'取消','btn.add':'添加','btn.remove':'移除',
     'agents.empty':'暂无 Agent','agents.main':'主 Agent','agents.bound':'已绑群',
     'agents.saveModel':'保存模型','agents.viewFiles':'查看文件',
@@ -2034,6 +2039,20 @@ const I18N = {
     'menu.ops':'Actions','menu.restart':'Restart Gateway','menu.logs':'Live Logs','menu.backup':'Manual Backup',
     'menu.rollback':'Backups / Rollback','menu.nas':'NAS Backup Setup','menu.doctor':'Health Check',
     'menu.opendir':'Open Config Dir','menu.switchdir':'Switch OpenClaw Dir',
+    'actions.logsTitle':'📋 Gateway Logs','actions.refresh':'🔄 Refresh','actions.autoRefresh':'Auto refresh (2s)',
+    'actions.outputTitle':'Output','actions.rollbackTitle':'📦 Backups / Rollback','actions.rollbackHint':'Select a backup file to restore. Current config will be auto-backed up first.',
+    'actions.restoreThis':'⏪ Restore this backup','actions.setupTitle':'⚙️ Switch OpenClaw Dir','actions.setupLabel':'OpenClaw data directory path',
+    'actions.setupPlaceholder':'~/.openclaw or absolute path','actions.setupHint':'Folder must contain openclaw.json. Page auto-refreshes after switching.','actions.setupConfirm':'Confirm Switch',
+    'actions.restartTitle':'Restart Gateway','actions.doctorTitle':'Health Check (doctor)','actions.running':'Running...','actions.noOutput':'(no output)',
+    'actions.restartSent':'Restart command sent.','actions.restartOk':'Gateway restarted','actions.restartFail':'Restart failed: ',
+    'actions.restartManualHint':'Please run manually in terminal:\\nopenclaw gateway restart',
+    'actions.backupSaved':'Backup saved: ','actions.backupFail':'Backup failed: ',
+    'actions.logEmpty':'(empty)','actions.logLoadFail':'Load failed: ',
+    'actions.noBackups':'No backup files','actions.loadFailed':'Load failed',
+    'actions.restoreConfirm':'Restore config to:\\n{filename}\\n\\nCurrent config will be auto-backed up first. Continue?',
+    'actions.restored':'Restored ','actions.restoreFail':'Restore failed: ',
+    'actions.setupEmpty':'Please enter a path','actions.setupSwitching':'Directory switched, refreshing...','actions.setupInvalid':'Invalid path','actions.setupReqFail':'Request failed: ',
+    'common.loading':'Loading...','common.close':'Close',
     'btn.save':'Save','btn.delete':'Delete','btn.cancel':'Cancel','btn.add':'Add','btn.remove':'Remove',
     'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
     'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
@@ -3155,30 +3174,30 @@ document.addEventListener('click',e=>{
 
 async function doRestart(){
   closeMenu(); dismissBanner(); hidePendingRestart();
-  document.getElementById('cmdTitle').textContent='重启 Gateway';
-  document.getElementById('cmdOutput').textContent='执行中...'; openModal('cmdModal');
+  document.getElementById('cmdTitle').textContent=t('actions.restartTitle');
+  document.getElementById('cmdOutput').textContent=t('actions.running'); openModal('cmdModal');
   try{
     const r=await api('POST','/api/gateway/restart');
-    document.getElementById('cmdOutput').textContent=r.output||'重启命令已发送。';
-    toast('Gateway 已重启','success');
+    document.getElementById('cmdOutput').textContent=r.output||t('actions.restartSent');
+    toast(t('actions.restartOk'),'success');
   }catch(e){
-    document.getElementById('cmdOutput').textContent='❌ '+e.message+'\\n\\n请在终端手动运行:\\nopenclaw gateway restart';
-    toast('重启失败: '+e.message,'error');
+    document.getElementById('cmdOutput').textContent='❌ '+e.message+'\\n\\n'+t('actions.restartManualHint');
+    toast(t('actions.restartFail')+e.message,'error');
   }
 }
 async function doDoctor(){
   closeMenu();
-  document.getElementById('cmdTitle').textContent='健康检查 (doctor)';
-  document.getElementById('cmdOutput').textContent='运行中...'; openModal('cmdModal');
+  document.getElementById('cmdTitle').textContent=t('actions.doctorTitle');
+  document.getElementById('cmdOutput').textContent=t('actions.running'); openModal('cmdModal');
   try{
     const r=await api('POST','/api/gateway/doctor');
-    document.getElementById('cmdOutput').textContent=r.output||'（无输出）';
+    document.getElementById('cmdOutput').textContent=r.output||t('actions.noOutput');
   }catch(e){document.getElementById('cmdOutput').textContent='❌ '+e.message;}
 }
 async function manualBackup(){
   closeMenu();
-  try{const r=await api('POST','/api/config/backup'); toast('备份已保存: '+r.bakPath.split('/').pop(),'success');}
-  catch(e){toast('备份失败: '+e.message,'error');}
+  try{const r=await api('POST','/api/config/backup'); toast(t('actions.backupSaved')+r.bakPath.split('/').pop(),'success');}
+  catch(e){toast(t('actions.backupFail')+e.message,'error');}
 }
 function openConfigDir(){ closeMenu(); api('POST','/api/folder/open').catch(()=>{}); }
 function closeMenu(){ document.getElementById('mainMenu').classList.remove('open'); }
@@ -3188,10 +3207,10 @@ async function openLogs(){ closeMenu(); openModal('logModal'); await refreshLogs
 async function refreshLogs(){
   try{
     const r=await api('GET','/api/logs?n=300');
-    document.getElementById('logContent').textContent=r.content||'（空）';
+    document.getElementById('logContent').textContent=r.content||t('actions.logEmpty');
     document.getElementById('logPath').textContent=r.path||'';
     const lb=document.getElementById('logContent'); lb.scrollTop=lb.scrollHeight;
-  }catch(e){document.getElementById('logContent').textContent='加载失败: '+e.message;}
+  }catch(e){document.getElementById('logContent').textContent=t('actions.logLoadFail')+e.message;}
 }
 function toggleAutoRefresh(){
   const cb=document.getElementById('autoRefresh');
@@ -3204,23 +3223,24 @@ function closeLogs(){ clearInterval(logTimer); logTimer=null; document.getElemen
 async function openRollback(){
   closeMenu(); openModal('rollbackModal');
   const el=document.getElementById('backupList');
-  el.innerHTML='<div class="empty">加载中...</div>';
+  el.innerHTML='<div class="empty">'+t('common.loading')+'</div>';
   try{
     const r=await api('GET','/api/backups');
-    if(!r.backups.length){el.innerHTML='<div class="empty">暂无备份文件</div>';return;}
+    if(!r.backups.length){el.innerHTML='<div class="empty">'+t('actions.noBackups')+'</div>';return;}
     el.innerHTML=r.backups.map(f=>\`<div class="card">
       <div class="card-row"><span class="card-title" style="font-size:13px">\${esc(f)}</span></div>
-      <div class="card-actions"><button class="btn-warn" onclick="doRestore('\${esc(f)}')">⏪ 恢复此备份</button></div>
+      <div class="card-actions"><button class="btn-warn" onclick="doRestore('\${esc(f)}')">\${t('actions.restoreThis')}</button></div>
     </div>\`).join('');
-  }catch(e){el.innerHTML='<div class="empty">加载失败</div>';}
+  }catch(e){el.innerHTML='<div class="empty">'+t('actions.loadFailed')+'</div>';}
 }
 async function doRestore(filename){
-  if(!confirm(\`确认将配置恢复为：\\n\${filename}\\n\\n当前配置将先被自动备份。继续？\`))return;
+  const confirmMsg=t('actions.restoreConfirm').replace('{filename}',filename);
+  if(!confirm(confirmMsg))return;
   try{
     await api('POST','/api/backups/restore',{filename});
-    toast('已恢复 '+filename,'success');
+    toast(t('actions.restored')+filename,'success');
     closeModal('rollbackModal'); await loadAll(); showRestartBanner();
-  }catch(e){toast('恢复失败: '+e.message,'error');}
+  }catch(e){toast(t('actions.restoreFail')+e.message,'error');}
 }
 
 // ── NAS 备份 ─────────────────────────────────────────────────
@@ -3322,12 +3342,12 @@ function openSetupModal(){ closeMenu(); openModal('setupModal'); }
 async function submitSetup(){
   const dir=document.getElementById('setup-dir').value.trim();
   const err=document.getElementById('setup-err');
-  if(!dir){err.textContent='请填写路径';return;}
+  if(!dir){err.textContent=t('actions.setupEmpty');return;}
   try{
     const r=await api('POST','/api/setup',{dir});
-    if(r.ok){ toast('目录已切换，正在刷新...','success'); setTimeout(()=>location.reload(),800); }
-    else err.textContent=r.error||'路径无效';
-  }catch(e){err.textContent='请求失败: '+e.message;}
+    if(r.ok){ toast(t('actions.setupSwitching'),'success'); setTimeout(()=>location.reload(),800); }
+    else err.textContent=r.error||t('actions.setupInvalid');
+  }catch(e){err.textContent=t('actions.setupReqFail')+e.message;}
 }
 
 // ── 重启横幅 ─────────────────────────────────────────────────
@@ -3384,9 +3404,39 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='stats') loadStats();
     if(t.dataset.tab==='cron') loadCrons();
   });
-});
+});`;
+
+const MAIN_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Manager</title>
+<style>
+
+${MAIN_HTML_CSS}
+</style>
+</head>
+<body>
+${MAIN_HTML_BODY}
+<script>
+${MAIN_HTML_SCRIPT}
 </script>
 </body></html>`;
+
+function assertBrowserScriptSyntax(name, scriptText) {
+  const tmpFile = path.join(os.tmpdir(), `ocm-${name}-${process.pid}.js`);
+  fs.writeFileSync(tmpFile, scriptText, 'utf8');
+  const r = spawnSync(process.execPath, ['--check', tmpFile], { encoding: 'utf8', timeout: 5000 });
+  try { fs.unlinkSync(tmpFile); } catch (_) {}
+  if (r.status !== 0) {
+    const detail = (r.stderr || r.stdout || 'unknown syntax error').trim();
+    throw new Error(
+      `${name} syntax check failed.\n${detail}\nHint: in MAIN_HTML_SCRIPT strings, write "\\\\n" instead of "\\n".`
+    );
+  }
+}
+assertBrowserScriptSyntax('main-html-script', MAIN_HTML_SCRIPT);
 
 // ── HTTP 服务器 ───────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
@@ -3418,7 +3468,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   const url = `http://localhost:${PORT}`;
   console.log('');
-  console.log('🦀 OpenClaw Manager v0.3');
+  console.log(`🦀 OpenClaw Manager v${APP_VERSION}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('📂 目录：' + OPENCLAW_DIR);
   console.log('🌐 地址：' + url);
