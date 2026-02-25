@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ================================================================
-# OpenClaw Manager v0.5.1 — 跨平台启动脚本 (macOS / Linux)
+# OpenClaw Manager v0.5.2 — 跨平台启动脚本 (macOS / Linux)
 #
 # 特性：
 #   • 自动检测 Node.js，未安装时给出安装指引
@@ -22,7 +22,7 @@ CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
 
 banner() {
   echo ""
-  echo -e "${CYAN}${BOLD}  🦀 OpenClaw Manager v0.5.1${RESET}"
+  echo -e "${CYAN}${BOLD}  🦀 OpenClaw Manager v0.5.2${RESET}"
   echo -e "${DIM}  ─────────────────────────────${RESET}"
   echo ""
 }

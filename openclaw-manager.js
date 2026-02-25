@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.5.1
+// OpenClaw Manager v0.5.2
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
 //   node openclaw-manager.js                  # 使用默认 ~/.openclaw
 //   node openclaw-manager.js --dir /path/to/.openclaw
+//   node openclaw-manager.js --host 127.0.0.1 # 仅本机访问（默认 0.0.0.0）
 //   OPENCLAW_DIR=/path/to/.openclaw node openclaw-manager.js
 //
 // ================================================================
@@ -22,12 +23,18 @@ const { exec, execSync, spawn, spawnSync } = require('child_process');
 const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
-const APP_VERSION = '0.5.1';
+let HOST = '0.0.0.0';
+const APP_VERSION = '0.5.2';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
 const portEq = process.argv.find(a => a.startsWith('--port='));
 if (portEq) PORT = parseInt(portEq.split('=')[1]) || 3333;
+// --host 参数（默认 0.0.0.0 允许远程访问）
+const hostIdx = process.argv.indexOf('--host');
+if (hostIdx !== -1 && process.argv[hostIdx + 1]) HOST = process.argv[hostIdx + 1];
+const hostEq = process.argv.find(a => a.startsWith('--host='));
+if (hostEq) HOST = hostEq.split('=').slice(1).join('=');
 
 function loadManagerConfig() {
   try { return JSON.parse(fs.readFileSync(MANAGER_CONFIG, 'utf8')); } catch { return {}; }
@@ -149,6 +156,16 @@ async function listBackups() {
     return files.filter(f => f.startsWith('openclaw.json.bak') || f.match(/openclaw\.json\.(create|edit|delete|models|auth|manual|before-restore)\./))
       .sort().reverse().slice(0, 20);
   } catch { return []; }
+}
+
+function getLanIP() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  return null;
 }
 
 function openBrowser(url) {
@@ -2985,7 +3002,7 @@ function onCliKey(e){
 // ── CLI Tab 补全 ─────────────────────────────────────────────
 const CLI_SUBCOMMANDS=['openclaw','doctor','gateway','models','agents','backup','config','auth',
   'restart','start','stop','status','logs','list','create','validate','update','onboard','sync',
-  'paste-token','--provider','--version','--dir','--port'];
+  'paste-token','--provider','--version','--dir','--port','--host'];
 
 function cliTabComplete(input){
   const val=input.value;
@@ -3465,23 +3482,27 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://localhost:${PORT}`;
+server.listen(PORT, HOST, () => {
+  const localUrl = `http://localhost:${PORT}`;
   console.log('');
   console.log(`🦀 OpenClaw Manager v${APP_VERSION}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('📂 目录：' + OPENCLAW_DIR);
-  console.log('🌐 地址：' + url);
-  console.log('💡 切换目录：node openclaw-manager.js --dir /path/to/.openclaw');
+  console.log('📂 Dir:   ' + OPENCLAW_DIR);
+  console.log('🌐 Local: ' + localUrl);
+  if (HOST === '0.0.0.0') {
+    const lanIp = getLanIP();
+    if (lanIp) console.log('🌐 LAN:   ' + `http://${lanIp}:${PORT}`);
+  }
+  console.log('💡 Switch dir: node openclaw-manager.js --dir /path/to/.openclaw');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Ctrl+C 停止');
-  openBrowser(url);
+  console.log('Ctrl+C to stop');
+  openBrowser(localUrl);
 });
 
 server.on('error', err => {
   if (err.code === 'EADDRINUSE')
-    console.error(`❌ 端口 ${PORT} 已占用。请关闭其他程序后重试，或用 --port 指定其他端口。`);
+    console.error(`❌ Port ${PORT} is already in use. Close the other process or use --port to specify a different port.`);
   else
-    console.error('❌ 启动失败：', err.message);
+    console.error('❌ Failed to start:', err.message);
   process.exit(1);
 });
