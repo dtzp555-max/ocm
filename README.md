@@ -39,7 +39,7 @@ Choose between Sub-agent mode and Multi-agent mode. Switch language (EN / 中文
 ### Agent Management
 View all agents (main + sub-agents) at a glance. Each card shows model, group binding, and workspace path. Switch models inline, browse files, or delete with auto-backup.
 
-![Agents](screenshots/agents.png)
+<!-- Screenshot removed (contained sensitive binding IDs) -->
 
 ### Built-in CLI Terminal
 Run any openclaw command with real-time streaming output. The terminal panel sits at the bottom of the page and expands on demand.
@@ -52,7 +52,7 @@ Run any openclaw command with real-time streaming output. The terminal panel sit
 ### New Subagent Wizard
 4-step guided wizard to create a sub-agent: basic info → model → personality & memory → confirm. Fully bilingual.
 
-![New Subagent](screenshots/subagents.png)
+<!-- Screenshot removed (contained sensitive binding IDs) -->
 
 ### Model Selector
 Rich model dropdown grouped by provider — GitHub Copilot, Anthropic, OpenAI, Google, DeepSeek, Kimi, Groq, Mistral, Together, plus your custom models.
@@ -196,7 +196,7 @@ start.bat       # Windows
 ![Landing](screenshots/landing.png)
 
 #### Agent 管理
-![Agents](screenshots/agents.png)
+<!-- Screenshot removed (contained sensitive binding IDs) -->
 
 #### 内置 CLI 终端
 底部终端面板，支持实时流式输出、预设命令、收藏夹、Tab 补全。
@@ -207,7 +207,7 @@ start.bat       # Windows
 <summary>更多截图</summary>
 
 #### 新建向导
-![New Subagent](screenshots/subagents.png)
+<!-- Screenshot removed (contained sensitive binding IDs) -->
 
 #### 模型选择 & 操作菜单
 首次安装后，通过 **Actions → Switch OpenClaw Dir** 指向你的 OpenClaw 配置目录即可开始使用。
