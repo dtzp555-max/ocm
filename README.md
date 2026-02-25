@@ -34,7 +34,7 @@ Open [http://localhost:3333](http://localhost:3333).
 ### Landing Page
 Choose between Sub-agent mode and Multi-agent mode. Switch language (EN / 中文) anytime.
 
-![Landing Page](screenshots/landing.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 ### Agent Management
 View all agents (main + sub-agents) at a glance. Each card shows model, group binding, and workspace path. Switch models inline, browse files, or delete with auto-backup.
@@ -44,7 +44,7 @@ View all agents (main + sub-agents) at a glance. Each card shows model, group bi
 ### Built-in CLI Terminal
 Run any openclaw command with real-time streaming output. The terminal panel sits at the bottom of the page and expands on demand.
 
-![CLI Overview](screenshots/cli1.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 <details>
 <summary>More screenshots</summary>
@@ -57,25 +57,25 @@ Run any openclaw command with real-time streaming output. The terminal panel sit
 ### Model Selector
 Rich model dropdown grouped by provider — GitHub Copilot, Anthropic, OpenAI, Google, DeepSeek, Kimi, Groq, Mistral, Together, plus your custom models.
 
-![Models](screenshots/models.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 ### Actions Menu
 Quick access to gateway operations, backups, health checks, and directory management. Use **"Switch OpenClaw Dir"** to point OCM to your OpenClaw config on first setup.
 
-![Actions](screenshots/actions.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 ### Cron Job Management
 View, add, enable/disable, and manually trigger openclaw-related cron tasks. Integrates with NAS backup schedules.
 
-![Cron](screenshots/cron.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 Preset command menu with built-in commands and your personal favorites — one click to run.
 
-![CLI Presets](screenshots/cli3.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 Command output streams in real-time. Star frequently used commands for quick access, or use the Manage button to organize favorites.
 
-![CLI Detail](screenshots/cli2.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 </details>
 
 ## Features
@@ -142,7 +142,6 @@ ocm/
 ├── start.sh                     ← macOS/Linux start script (auto-detect Node, port, config)
 ├── start.bat                    ← Windows start script
 ├── OpenClaw Manager.app/        ← macOS Finder double-click launcher
-├── screenshots/                 ← README screenshots
 ├── manager-config.json          ← Local config (gitignored)
 ├── package.json
 ├── DEVLOG.md                    ← Development log
@@ -193,7 +192,7 @@ start.bat       # Windows
 ### 界面预览
 
 #### 模式选择
-![Landing](screenshots/landing.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 #### Agent 管理
 <!-- Screenshot removed (contained sensitive binding IDs) -->
@@ -201,7 +200,7 @@ start.bat       # Windows
 #### 内置 CLI 终端
 底部终端面板，支持实时流式输出、预设命令、收藏夹、Tab 补全。
 
-![CLI](screenshots/cli1.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 <details>
 <summary>更多截图</summary>
@@ -212,14 +211,14 @@ start.bat       # Windows
 #### 模型选择 & 操作菜单
 首次安装后，通过 **Actions → Switch OpenClaw Dir** 指向你的 OpenClaw 配置目录即可开始使用。
 
-![Models](screenshots/models.png)
-![Actions](screenshots/actions.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
+<!-- Screenshot removed (possible sensitive IDs) -->
 
 #### Cron 定时任务
-![Cron](screenshots/cron.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
 
-![CLI Presets](screenshots/cli3.png)
-![CLI Detail](screenshots/cli2.png)
+<!-- Screenshot removed (possible sensitive IDs) -->
+<!-- Screenshot removed (possible sensitive IDs) -->
 </details>
 
 ### 功能一览
