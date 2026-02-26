@@ -147,13 +147,21 @@
 - **`assertBrowserScriptSyntax()`** 在启动时检查 MAIN_HTML_SCRIPT 的 evaluated 值
 - **OpenClaw config 多 bot 格式**：`channels.telegram.accounts.<id>.botToken`，binding 用 `accountId` 路由
 
-### 下一步（v0.6.2+）
+### 下一步（v0.7+）
 
 - [x] Dashboard 首页 tab（系统信息 + OpenClaw health 状态）— done in v0.6.5
 - [x] HTTP 响应加 `Cache-Control: no-store` + version-based cache busting — done in v0.6.5
 - [x] 彻底删除旧 `/api/agents/main` 端点残留（确认已清除）— confirmed in v0.6.5
+- [x] Agent tree: independent roots per bot + side-by-side layout — done in v0.6.5
+- [x] Agent tree: expand/collapse toggle for sub-agents — done in v0.6.5
+- [x] Add Agent: creates `agents/<id>/sessions/` runtime dirs + SOUL.md personality — done in v0.6.5
+- [x] Agent tree: main agent always root with inferred accountId — done in v0.6.6
 - [ ] Dashboard: auto-refresh every 30s when tab is active
 - [ ] Dashboard: OpenClaw version display (from `openclaw --version`)
+- [ ] Agent page: edit agent name, purpose, personality inline
+- [ ] Agent page: restart gateway button with status feedback
+- [ ] Settings tab: edit openclaw.json key fields via form (model, workspace defaults)
+- [ ] Telegram bot connectivity test button (ping bot API from server)
 - [ ] DEVLOG.md 中文 → 逐步迁移为英文
 
 ---
