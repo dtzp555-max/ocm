@@ -369,7 +369,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents/bot — create agent with its own bot token
   if (method === 'POST' && pathname === '/api/agents/bot') {
-    const { botToken, agentId, name, model, workspace } = body;
+    const { botToken, agentId, name, model, workspace, purpose, personality } = body;
     if (!botToken || !botToken.trim()) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Bot Token is required' })); return;
     }
@@ -425,16 +425,21 @@ async function handleApi(req, res, urlObj, body) {
     await fsp.mkdir(wsPath, { recursive: true });
     await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
     const agentName = name || agentId;
-    await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(agentName, '', ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(agentName, purpose || '', personality || ''), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(agentName, ''), 'utf8');
+    // Create agents/<id>/ runtime directory (required by OpenClaw gateway)
+    const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
+    await fsp.mkdir(agentRuntimeDir, { recursive: true });
+    await fsp.mkdir(path.join(agentRuntimeDir, 'sessions'), { recursive: true });
     res.writeHead(200);
     res.end(JSON.stringify({
       ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
         'Agent created with its own bot token',
         'Workspace directory created with SOUL.md and MEMORY.md',
+        'Runtime directory created at agents/' + agentId + '/',
         'Configuration updated and backed up',
-        'Changes take effect in ~300ms without restart'
+        'Restart gateway to load new bot: openclaw gateway restart'
       ]
     }));
     return;
@@ -487,13 +492,17 @@ async function handleApi(req, res, urlObj, body) {
     const name = displayName || agentId;
     await fsp.writeFile(path.join(wsPath, 'SOUL.md'),   generateSoulMd(name, purpose, personality), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name, initialMemory), 'utf8');
+    // Create agents/<id>/ runtime directory (required by OpenClaw gateway)
+    const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
+    await fsp.mkdir(agentRuntimeDir, { recursive: true });
+    await fsp.mkdir(path.join(agentRuntimeDir, 'sessions'), { recursive: true });
     res.writeHead(200);
     res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
         'Sub-agent created and shares parent bot',
-        'Workspace directory created with SOUL.md and MEMORY.md',
+        'Workspace and runtime directories created',
         'Configuration updated and backed up',
-        'Changes take effect in ~300ms without restart'
+        'Restart gateway to apply: openclaw gateway restart'
       ],
     }));
     return;
@@ -2533,6 +2542,11 @@ function buildAddAgentForm() {
     '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
     '<select id="fa-model">' + modelOpts + '</select>' +
     '</div>' +
+    '<div class="form-group"><label>' + t('wiz.purpose') + '</label>' +
+    '<textarea id="fa-purpose" placeholder="' + t('wiz.purposePh') + '" rows="2"></textarea></div>' +
+    '<div class="form-group"><label>' + t('wiz.soul') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.soulHint') + '</span></label>' +
+    '<input id="fa-soul" placeholder="' + t('wiz.soulPh') + '">' +
+    '<span class="hint-text">' + t('wiz.soulTip') + '</span></div>' +
     '<div style="display:flex;gap:8px;margin-top:14px">' +
     '<button class="btn-primary" onclick="submitAddAgent()">' + t('agents.addAgentSubmit') + '</button>' +
     '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
@@ -2590,13 +2604,15 @@ async function submitAddAgent() {
   const name = document.getElementById('fa-name').value.trim();
   const workspace = document.getElementById('fa-workspace').value.trim();
   const model = document.getElementById('fa-model').value;
+  const purpose = (document.getElementById('fa-purpose')?.value||'').trim();
+  const personality = (document.getElementById('fa-soul')?.value||'').trim();
   if (!token) { toast(t('agents.errToken'), 'err'); return; }
   if (!agentId) { toast('Agent ID is required', 'err'); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast('Agent ID must contain only alphanumeric characters, underscores, or dashes', 'err'); return; }
   if (!name) { toast(t('agents.errName'), 'err'); return; }
   if (!workspace) { toast('Workspace name is required', 'err'); return; }
   try {
-    const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model };
+    const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model, purpose, personality };
     const r = await api('POST', '/api/agents/bot', payload);
     toast('Agent created successfully', 'ok');
     closePopover();
