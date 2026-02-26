@@ -1,7 +1,115 @@
 # OpenClaw Manager — 开发日志
 
-> 最后更新：2026-02-25
-> 当前版本：v0.5.2
+> 最后更新：2026-02-26
+> 当前版本：v0.6.0
+
+---
+
+## v0.6.0 更新日志（2026-02-26）
+
+### 重大 Bug 修复
+
+**Add Agent 覆盖已有 Bot Token（数据破坏性 Bug）**
+- **症状**：通过 Add Agent 表单添加新 agent 时，直接覆盖 `channels.telegram.botToken`，导致所有已有 agent（包括 sub-agent）全部失效
+- **根本原因**：`POST /api/agents/main` 端点无条件覆盖 `channels.telegram.botToken` 字段，没有保护已有配置
+- **修复**：
+  - 彻底删除 `POST /api/agents/main` 端点
+  - 新建 `POST /api/agents/bot` 端点，使用 OpenClaw 的 `channels.telegram.accounts` 多 bot 结构
+  - 每个新 agent 获得独立的 `accountId` 和 `botToken`，绝不覆盖已有 token
+  - 自动迁移：首次添加新 bot 时，自动将旧格式（顶层 `botToken`）迁移到 `accounts.default`
+- **数据恢复**：程序在修改前自动创建 `openclaw.json.create.*` 备份，可通过 `cp` 恢复
+
+**浏览器 Popover API 命名冲突**
+- **症状**：点击 "＋ Add Agent" / "＋ Add Sub-Agent" 按钮报错 `NotSupportedError: Failed to execute 'togglePopover' on 'HTMLElement'`
+- **根本原因**：自定义函数 `togglePopover()` 与浏览器原生 Popover API 的 `HTMLElement.togglePopover()` 方法冲突
+- **修复**：函数重命名为 `showConfigPop()`
+
+### 架构变更
+
+**多 Bot 支持（Multi-Account）**
+- 支持 OpenClaw 的 `channels.telegram.accounts` 结构，每个主 agent 可绑定独立的 Telegram bot
+- 配置格式：
+  ```json
+  {
+    "channels": { "telegram": { "accounts": {
+      "default": { "botToken": "TOKEN_A" },
+      "research": { "botToken": "TOKEN_B" }
+    }}}
+  }
+  ```
+- `GET /api/agents` 返回 `hasOwnBot` 字段，标识 agent 是否拥有独立 bot
+- Sub-Agent 表单新增 "Parent Agent" 下拉，选择共享哪个 bot（不再硬编码 "main"）
+
+**去除 Landing Page，直接进入主程序**
+- 移除模式选择首页（Sub-agent / Multi-agent 二选一）
+- 启动后直接进入 Agent 管理页面
+- 移除 landing page 相关 HTML、CSS、JS、i18n keys
+
+**Agent 页面重设计（popover 配置窗口）**
+- 不再使用左右分屏布局
+- "＋ Add Agent" / "＋ Add Sub-Agent" 按钮居中显示在 agent 树上方
+- 点击按钮弹出浮动配置窗口（popover），包含引导步骤和表单
+- Agent 树宽度限制 720px 居中，多个 agent 树纵向排列
+
+### 功能改进
+
+**Stats 重写 — 从 session JSONL 文件解析真实用量**
+- 不再从 `gateway.log` 解析（之前一直是 0 数据）
+- 改为扫描 `~/.openclaw/agents/*/sessions/*.jsonl`
+- 解析 `type: "message"` + `role: "assistant"` 的 `message.usage` 字段
+- 新增维度：By Agent（每个 agent 的用量）、Cache Read tokens
+- 测试验证：成功解析出 990 条请求、6 个 agent、10 个模型的真实数据
+
+**Model 下拉 — 只显示已注册模型**
+- 不再使用硬编码的 KNOWN_MODELS 列表
+- 改为从 `openclaw.json` 的 `agents.defaults.models` 读取实际注册的模型
+
+**Agent 树事件委托**
+- `renderAgents()` 中的按钮不再使用 `onclick="func('escaped-string')"` 内联写法
+- 改用 `data-action` / `data-id` 属性 + 事件委托（`agentTreeAction`），避免 template literal 转义问题
+
+**响应式布局**
+- `main` 容器改为 `max-width:100%`，适配不同屏幕宽度
+- 新增 `@media (max-width: 600px)` 断点：侧边导航折叠、按钮纵向排列
+
+**备份时间戳改为 Brisbane 时区**
+- `brisbaneTimestamp()` 函数，所有备份文件名使用 `Australia/Brisbane` 时区
+- 重要：系统所有时间显示统一按 Brisbane 处理
+
+**启动脚本全面重写**
+- `start.sh` / `start.bat` 全部英文
+- 端口冲突时自动 kill 旧进程，而非报错退出
+- 支持 `--host` 参数
+
+**README 重写**
+- 移除所有空的 screenshot 占位符（含敏感 ID 的截图已删除）
+- 更新功能描述匹配 v0.6
+- 精简结构，保留中英文双语
+
+### 新功能 i18n 策略
+
+- v0.6 新增的所有 UI 文案仅提供英文
+- 中文翻译推迟到 v1.0 正式版
+
+### 技术备忘
+
+- **Template literal 转义规则**：MAIN_HTML_SCRIPT 是反引号模板字符串
+  - `\n` → 真实换行（浏览器 JS 字符串跨行 → SyntaxError），必须写 `\\n`
+  - `\'` → `'`（无法用于 onclick 里的引号转义），改用 data 属性 + 事件委托
+  - `\`` → `` ` ``（嵌套模板字符串在 evaluated output 中正常工作）
+- **`assertBrowserScriptSyntax()`** 在启动时检查 MAIN_HTML_SCRIPT 的 evaluated 值
+- **OpenClaw config 多 bot 格式**：`channels.telegram.accounts.<id>.botToken`，binding 用 `accountId` 路由
+
+### 下一步（v0.6.1+）
+
+- [ ] Dashboard 首页 tab（系统信息 + OpenClaw health 状态）
+  - 系统：OS、Node 版本、uptime、内存、磁盘
+  - 健康：进程检测（ps grep）+ HTTP ping OpenClaw 端口
+  - Gateway 状态指示灯（running/stopped/unknown）
+  - Agent 数量、最近活动时间
+- [ ] HTTP 响应加 `Cache-Control: no-store` + version-based cache busting（防止浏览器缓存旧前端触发已删除的 API）
+- [ ] 彻底删除旧 `/api/agents/main` 端点残留（确认已清除）
+- [ ] DEVLOG.md 中文 → 逐步迁移为英文
 
 ---
 
