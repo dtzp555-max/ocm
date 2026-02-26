@@ -114,8 +114,12 @@ async function readConfig() {
   return JSON.parse(raw);
 }
 
+function brisbaneTimestamp() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Australia/Brisbane', hour12: false }).replace(/[: ]/g, '-').slice(0, 19);
+}
+
 async function backupConfig(label) {
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ts = brisbaneTimestamp();
   const suffix = label ? `.${label}.${ts}` : `.bak.${ts}`;
   const bakPath = CONFIG_PATH + suffix;
   await fsp.copyFile(CONFIG_PATH, bakPath);
@@ -345,63 +349,114 @@ async function handleApi(req, res, urlObj, body) {
       const binding = bindings.find(b => b.agentId === a.id && b.match?.peer?.kind === 'group');
       const groupId = binding?.match?.peer?.id || null;
       const modelVal = a.model?.primary || (typeof a.model === 'string' ? a.model : null);
+      // Check if agent has its own bot account (binding with accountId but no peer, or accountId matching agent ID)
+      const botBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId && !b.match?.peer);
+      const hasOwnBot = botBinding ? true : false;
       return { ...a, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
-        effectiveModel: modelVal || defaults.model?.primary || '默认' };
+        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot };
     });
     res.writeHead(200);
     res.end(JSON.stringify({ agents: enriched, defaults }));
     return;
   }
 
-  // POST /api/agents/main — create or update main agent (set Bot Token)
-  if (method === 'POST' && pathname === '/api/agents/main') {
-    const { botToken, name, model } = body;
+  // POST /api/agents/bot — create agent with its own bot token
+  if (method === 'POST' && pathname === '/api/agents/bot') {
+    const { botToken, agentId, name, model, workspace } = body;
     if (!botToken || !botToken.trim()) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Bot Token is required' })); return;
     }
+    if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
+    }
+    if (!workspace || !workspace.trim()) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Workspace name is required' })); return;
+    }
+    if (workspace === 'main') {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Workspace name cannot be "main"' })); return;
+    }
     const cfg = await readConfig();
-    // Set bot token
+    // Check if agentId already exists
+    if (cfg.agents?.list?.some(a => a.id === agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID "${agentId}" already exists` })); return;
+    }
+    // Migrate from old format if necessary
+    if (cfg.channels?.telegram?.botToken && !cfg.channels.telegram.accounts) {
+      cfg.channels.telegram.accounts = {};
+      cfg.channels.telegram.accounts.default = { botToken: cfg.channels.telegram.botToken };
+      delete cfg.channels.telegram.botToken;
+    }
+    // Initialize structure
     if (!cfg.channels) cfg.channels = {};
     if (!cfg.channels.telegram) cfg.channels.telegram = {};
-    cfg.channels.telegram.botToken = botToken.trim();
+    if (!cfg.channels.telegram.accounts) cfg.channels.telegram.accounts = {};
+    // Check for duplicate bot token in existing accounts
+    const tokenTrimmed = botToken.trim();
+    for (const acctId in cfg.channels.telegram.accounts) {
+      if (cfg.channels.telegram.accounts[acctId].botToken === tokenTrimmed) {
+        res.writeHead(400); res.end(JSON.stringify({ error: `Bot Token already used by account "${acctId}"` })); return;
+      }
+    }
+    // Add new account
+    cfg.channels.telegram.accounts[agentId] = { botToken: tokenTrimmed };
     cfg.channels.telegram.enabled = true;
-    // Ensure main agent exists
+    // Ensure agents structure
     if (!cfg.agents) cfg.agents = { defaults: {}, list: [] };
     if (!cfg.agents.list) cfg.agents.list = [];
-    let mainAgent = cfg.agents.list.find(a => a.id === 'main');
-    if (!mainAgent) {
-      mainAgent = { id: 'main' };
-      cfg.agents.list.push(mainAgent);
-    }
-    if (name) mainAgent.name = name.trim();
-    if (model) mainAgent.model = { primary: model };
-    // Ensure main catch-all binding exists
+    // Create agent entry
+    const wsPath = path.join(OPENCLAW_DIR, 'workspaces', workspace);
+    const wsAlias = `~/.openclaw/workspaces/${workspace}`;
+    const agentEntry = { id: agentId, name: name || agentId, workspace: wsAlias };
+    if (model && model !== '__default__') agentEntry.model = { primary: model };
+    cfg.agents.list.push(agentEntry);
+    // Add binding
     if (!cfg.bindings) cfg.bindings = [];
-    const hasMainBinding = cfg.bindings.some(b => b.agentId === 'main' && !b.match?.peer);
-    if (!hasMainBinding) {
-      cfg.bindings.push({ agentId: 'main', match: { channel: 'telegram', accountId: 'default' } });
-    }
+    cfg.bindings.push({ agentId, match: { channel: 'telegram', accountId: agentId } });
+    // Save config
     const bakPath = await writeConfig(cfg, 'create');
+    // Create workspace directories and files
+    await fsp.mkdir(wsPath, { recursive: true });
+    await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
+    const agentName = name || agentId;
+    await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(agentName, '', ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(agentName, ''), 'utf8');
     res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, configBackup: bakPath }));
+    res.end(JSON.stringify({
+      ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
+      notes: [
+        'Agent created with its own bot token',
+        'Workspace directory created with SOUL.md and MEMORY.md',
+        'Configuration updated and backed up',
+        'Changes take effect in ~300ms without restart'
+      ]
+    }));
     return;
   }
 
-  // POST /api/agents
+  // POST /api/agents — create sub-agent (shares parent bot)
   if (method === 'POST' && pathname === '/api/agents') {
-    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory } = body;
+    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId } = body;
     if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
-      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID 只能包含英文字母、数字、_ 或 -' })); return;
-    }
-    if (agentId.toLowerCase() === 'main') {
-      res.writeHead(400); res.end(JSON.stringify({ error: '"main" 是系统保留 ID' })); return;
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
     }
     if (!groupId?.trim()) {
-      res.writeHead(400); res.end(JSON.stringify({ error: '群组 ID 不能为空' })); return;
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Group ID cannot be empty' })); return;
+    }
+    if (!parentAgentId?.trim()) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Parent Agent ID is required' })); return;
     }
     const cfg = await readConfig();
+    // Verify parent agent exists and has a bot account
+    const parentAgent = cfg.agents?.list?.find(a => a.id === parentAgentId);
+    if (!parentAgent) {
+      res.writeHead(404); res.end(JSON.stringify({ error: `Parent agent "${parentAgentId}" does not exist` })); return;
+    }
+    const parentBinding = cfg.bindings?.find(b => b.agentId === parentAgentId && b.match?.accountId);
+    if (!parentBinding) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Parent agent "${parentAgentId}" does not have its own bot account` })); return;
+    }
     if (cfg.agents.list.some(a => a.id === agentId)) {
-      res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID "${agentId}" 已存在` })); return;
+      res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID "${agentId}" already exists` })); return;
     }
     const gid    = String(groupId).trim();
     const folder = workspaceFolder || agentId;
@@ -410,10 +465,11 @@ async function handleApi(req, res, urlObj, body) {
     const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
     cfg.agents.list.push(agentEntry);
-    const newBinding = { agentId, match: { channel: 'telegram', peer: { kind: 'group', id: gid } } };
-    const mainIdx = cfg.bindings.findIndex(b => b.agentId === 'main' && !b.match?.peer);
-    if (mainIdx >= 0) cfg.bindings.splice(mainIdx, 0, newBinding);
-    else cfg.bindings.unshift(newBinding);
+    // Binding uses parent's accountId
+    const parentAccountId = parentBinding.match.accountId;
+    const newBinding = { agentId, match: { channel: 'telegram', accountId: parentAccountId, peer: { kind: 'group', id: gid } } };
+    if (!cfg.bindings) cfg.bindings = [];
+    cfg.bindings.unshift(newBinding);
     if (!cfg.channels)                 cfg.channels = {};
     if (!cfg.channels.telegram)        cfg.channels.telegram = {};
     if (!cfg.channels.telegram.groups) cfg.channels.telegram.groups = {};
@@ -427,11 +483,10 @@ async function handleApi(req, res, urlObj, body) {
     res.writeHead(200);
     res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
-        '✅ openclaw.json 已更新（自动备份）',
-        '✅ Workspace 已创建（SOUL.md + MEMORY.md）',
-        '🔄 配置约 300ms 后自动生效，无需重启网关',
-        '📱 请在 Telegram 群内发送 /new 切换到新 Agent',
-        '⚠️ 若群内无回复，请确认 BotFather 已关闭隐私模式（/setprivacy → Disable）',
+        'Sub-agent created and shares parent bot',
+        'Workspace directory created with SOUL.md and MEMORY.md',
+        'Configuration updated and backed up',
+        'Changes take effect in ~300ms without restart'
       ],
     }));
     return;
@@ -910,71 +965,85 @@ async function handleApi(req, res, urlObj, body) {
     return;
   }
 
-  // ── Stats API — Token 用量统计 ──────────────────────────────
+  // ── Stats API — Token usage from session JSONL files ──────────
   if (method === 'GET' && pathname === '/api/stats') {
     const days = parseInt(urlObj.searchParams.get('days') || '30');
     const cutoff = Date.now() - days * 86400000;
-    const logPath = path.join(OPENCLAW_DIR, 'logs', 'gateway.log');
     const byModel = {};
     const byDay = {};
-    let totalIn = 0, totalOut = 0;
+    const byAgent = {};
+    let totalIn = 0, totalOut = 0, totalCacheRead = 0, totalCacheWrite = 0;
+    let totalCost = 0;
     try {
-      const content = await fsp.readFile(logPath, 'utf8');
-      const lines = content.split('\n');
-      for (const line of lines) {
-        // 尝试解析 JSON 日志行
-        let obj = null;
-        try {
-          const jm = line.match(/\{[^{}]*"(tokens|usage|input_tokens|output_tokens)"[^{}]*\}/);
-          if (jm) obj = JSON.parse(jm[0]);
-        } catch { /* not JSON */ }
-        // 尝试解析文本格式: "input_tokens: 123, output_tokens: 456"
-        if (!obj) {
-          const inM = line.match(/input_tokens[:\s=]+(\d+)/i);
-          const outM = line.match(/output_tokens[:\s=]+(\d+)/i);
-          if (inM || outM) {
-            obj = {};
-            if (inM) obj.input_tokens = parseInt(inM[1]);
-            if (outM) obj.output_tokens = parseInt(outM[1]);
+      const agentsDir = path.join(OPENCLAW_DIR, 'agents');
+      const agentDirs = await fsp.readdir(agentsDir).catch(() => []);
+      for (const agentId of agentDirs) {
+        const sessDir = path.join(agentsDir, agentId, 'sessions');
+        let files;
+        try { files = await fsp.readdir(sessDir); } catch { continue; }
+        const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+        for (const fname of jsonlFiles) {
+          let content;
+          try { content = await fsp.readFile(path.join(sessDir, fname), 'utf8'); } catch { continue; }
+          const lines = content.split('\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let obj;
+            try { obj = JSON.parse(line); } catch { continue; }
+            if (obj.type !== 'message') continue;
+            const msg = obj.message;
+            if (!msg || msg.role !== 'assistant' || !msg.usage) continue;
+            // Check timestamp filter
+            const ts = obj.timestamp ? new Date(obj.timestamp).getTime() : (msg.timestamp || 0);
+            if (ts && ts < cutoff) continue;
+            const u = msg.usage;
+            const inTk = u.input || 0;
+            const outTk = u.output || 0;
+            const cacheR = u.cacheRead || 0;
+            const cacheW = u.cacheWrite || 0;
+            const msgCost = u.cost && typeof u.cost === 'object' ? (u.cost.total || 0) : 0;
+            const model = msg.model || 'unknown';
+            totalIn += inTk; totalOut += outTk;
+            totalCacheRead += cacheR; totalCacheWrite += cacheW;
+            totalCost += msgCost;
+            // By model
+            if (!byModel[model]) byModel[model] = { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, requestCount: 0, cost: 0 };
+            byModel[model].inputTokens += inTk;
+            byModel[model].outputTokens += outTk;
+            byModel[model].cacheRead += cacheR;
+            byModel[model].cacheWrite += cacheW;
+            byModel[model].requestCount++;
+            byModel[model].cost += msgCost;
+            // By day
+            const dayKey = ts ? new Date(ts).toISOString().slice(0, 10) : 'unknown';
+            if (!byDay[dayKey]) byDay[dayKey] = { inputTokens: 0, outputTokens: 0, requestCount: 0, cost: 0 };
+            byDay[dayKey].inputTokens += inTk;
+            byDay[dayKey].outputTokens += outTk;
+            byDay[dayKey].requestCount++;
+            byDay[dayKey].cost += msgCost;
+            // By agent
+            if (!byAgent[agentId]) byAgent[agentId] = { inputTokens: 0, outputTokens: 0, requestCount: 0, cost: 0 };
+            byAgent[agentId].inputTokens += inTk;
+            byAgent[agentId].outputTokens += outTk;
+            byAgent[agentId].requestCount++;
+            byAgent[agentId].cost += msgCost;
           }
         }
-        if (!obj) continue;
-        // 提取时间戳
-        let ts = null;
-        const tsM = line.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})/);
-        if (tsM) ts = new Date(tsM[1]).getTime();
-        if (ts && ts < cutoff) continue;
-        // 提取模型
-        const model = obj.model || (line.match(/model[:\s="]+([a-zA-Z0-9_./-]+)/i) || [])[1] || 'unknown';
-        const inTk = obj.input_tokens || obj.prompt_tokens || 0;
-        const outTk = obj.output_tokens || obj.completion_tokens || 0;
-        totalIn += inTk; totalOut += outTk;
-        if (!byModel[model]) byModel[model] = { inputTokens: 0, outputTokens: 0, requestCount: 0 };
-        byModel[model].inputTokens += inTk;
-        byModel[model].outputTokens += outTk;
-        byModel[model].requestCount++;
-        const dayKey = ts ? new Date(ts).toISOString().slice(0, 10) : 'unknown';
-        if (!byDay[dayKey]) byDay[dayKey] = { inputTokens: 0, outputTokens: 0, requestCount: 0 };
-        byDay[dayKey].inputTokens += inTk;
-        byDay[dayKey].outputTokens += outTk;
-        byDay[dayKey].requestCount++;
       }
-    } catch { /* log file may not exist */ }
-    // 默认模型定价（每百万 token，USD）
-    const mc = loadManagerConfig();
-    const pricing = mc.modelPricing || {};
-    const defaultPricing = { input: 3, output: 15 }; // $3/M in, $15/M out
-    function calcCost(model, inTk, outTk) {
-      const p = pricing[model] || defaultPricing;
-      return ((inTk * (p.input || 3)) + (outTk * (p.output || 15))) / 1000000;
-    }
-    Object.entries(byModel).forEach(([m, d]) => { d.cost = calcCost(m, d.inputTokens, d.outputTokens).toFixed(4); });
-    Object.entries(byDay).forEach(([d, v]) => { v.cost = calcCost('', v.inputTokens, v.outputTokens).toFixed(4); });
-    const totalCost = calcCost('', totalIn, totalOut);
+    } catch { /* agents dir may not exist */ }
+    // Format costs
+    Object.values(byModel).forEach(d => { d.cost = d.cost.toFixed(4); });
+    Object.values(byDay).forEach(d => { d.cost = d.cost.toFixed(4); });
+    Object.values(byAgent).forEach(d => { d.cost = d.cost.toFixed(4); });
     res.writeHead(200);
     res.end(JSON.stringify({
-      summary: { totalInputTokens: totalIn, totalOutputTokens: totalOut, estimatedCost: '$' + totalCost.toFixed(4) },
-      byModel, byDay
+      summary: {
+        totalInputTokens: totalIn, totalOutputTokens: totalOut,
+        totalCacheRead: totalCacheRead, totalCacheWrite: totalCacheWrite,
+        estimatedCost: '$' + totalCost.toFixed(4),
+        totalTokens: totalIn + totalOut + totalCacheRead + totalCacheWrite
+      },
+      byModel, byDay, byAgent
     }));
     return;
   }
@@ -1596,16 +1665,19 @@ const MAIN_HTML_BODY = String.raw`
         <option value="90">90 days</option>
       </select>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
-      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.input">输入 Token</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalInput">--</div></div>
-      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.output">输出 Token</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalOutput">--</div></div>
-      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.cost">估计成本</div><div style="font-size:22px;font-weight:700;margin-top:8px;color:var(--accent)" id="statsTotalCost">--</div></div>
-      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.requests">请求数</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalReqs">--</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.input">Input Tokens</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalInput">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.output">Output Tokens</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalOutput">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)">Cache Read</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsCacheRead">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.cost">Estimated Cost</div><div style="font-size:22px;font-weight:700;margin-top:8px;color:var(--accent)" id="statsTotalCost">--</div></div>
+      <div class="card" style="padding:16px"><div style="font-size:12px;color:var(--muted)" data-i18n="stats.requests">Requests</div><div style="font-size:22px;font-weight:700;margin-top:8px" id="statsTotalReqs">--</div></div>
     </div>
-    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byDay">按日期</h3>
+    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byDay">By Day</h3>
     <div class="card" style="padding:16px;margin-bottom:16px"><div id="statsChart" style="display:flex;align-items:flex-end;gap:2px;height:100px;overflow-x:auto"></div></div>
-    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byModel">按模型</h3>
-    <div class="card-grid" id="statsByModel"><div class="empty" data-i18n="stats.noData">暂无数据</div></div>
+    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600" data-i18n="stats.byModel">By Model</h3>
+    <div class="card-grid" id="statsByModel"><div class="empty" data-i18n="stats.noData">No data</div></div>
+    <h3 style="margin:16px 0 10px;font-size:14px;font-weight:600">By Agent</h3>
+    <div class="card-grid" id="statsByAgent"><div class="empty">No data</div></div>
   </div>
 
   <!-- ══ Cron ═════════════════════════════════════════════════ -->
@@ -1896,7 +1968,7 @@ const I18N = {
     'auth.step1':'1. 获取 API Key','auth.step2':'2. 在终端运行以下命令','auth.step3':'3. 按提示粘贴 API Key 并回车',
     'auth.onboard':'完成认证后，运行 openclaw onboard 注册可用模型',
     'stats.title':'使用统计','stats.input':'输入 Token','stats.output':'输出 Token',
-    'stats.cost':'估计成本','stats.requests':'请求数','stats.byModel':'按模型','stats.byDay':'按日期','stats.noData':'暂无数据（日志为空或无 Token 记录）',
+    'stats.cost':'估计成本','stats.requests':'请求数','stats.byModel':'按模型','stats.byDay':'按日期','stats.noData':'暂无数据（未找到会话记录）',
     'cron.title':'计划任务','cron.add':'＋ 添加任务','cron.hint':'管理与 OpenClaw 相关的 crontab 计划任务。',
     'cron.addTitle':'添加计划任务','cron.schedule':'Cron 表达式','cron.command':'命令','cron.label':'标签',
     'cron.enabled':'启用','cron.disabled':'已禁用','cron.run':'▶ 运行','cron.edit':'编辑','cron.empty':'暂无 OpenClaw 相关的计划任务',
@@ -2002,7 +2074,7 @@ const I18N = {
     'auth.step1':'1. Get API Key','auth.step2':'2. Run the command below in terminal','auth.step3':'3. Paste your API Key when prompted',
     'auth.onboard':'After auth, run openclaw onboard to register available models',
     'stats.title':'Usage Stats','stats.input':'Input Tokens','stats.output':'Output Tokens',
-    'stats.cost':'Estimated Cost','stats.requests':'Requests','stats.byModel':'By Model','stats.byDay':'By Day','stats.noData':'No data (log empty or no token records)',
+    'stats.cost':'Estimated Cost','stats.requests':'Requests','stats.byModel':'By Model','stats.byDay':'By Day','stats.noData':'No data (no session records found)',
     'cron.title':'Scheduled Tasks','cron.add':'＋ Add Task','cron.hint':'Manage OpenClaw-related crontab scheduled tasks.',
     'cron.addTitle':'Add Scheduled Task','cron.schedule':'Cron Expression','cron.command':'Command','cron.label':'Label',
     'cron.enabled':'Enabled','cron.disabled':'Disabled','cron.run':'▶ Run','cron.edit':'Edit','cron.empty':'No OpenClaw-related cron tasks',
@@ -2246,8 +2318,14 @@ function buildAddAgentForm() {
     '<div class="form-group"><label>' + t('agents.botToken') + '</label>' +
     '<input id="fa-token" type="text" placeholder="123456:ABC-DEF...">' +
     '</div>' +
+    '<div class="form-group"><label>Agent ID</label>' +
+    '<input id="fa-agentid" type="text" placeholder="research, alice_bot, etc." pattern="[a-zA-Z0-9_-]+">' +
+    '<span class="hint-text">Alphanumeric, underscore, or dash only</span></div>' +
     '<div class="form-group"><label>' + t('agents.botName') + '</label>' +
     '<input id="fa-name" type="text" placeholder="' + t('agents.botNamePh') + '">' +
+    '</div>' +
+    '<div class="form-group"><label>Workspace Name</label>' +
+    '<input id="fa-workspace" type="text" placeholder="research, alice_workspace, etc.">' +
     '</div>' +
     '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
     '<select id="fa-model">' + modelOpts + '</select>' +
@@ -2259,10 +2337,17 @@ function buildAddAgentForm() {
 }
 
 function buildAddSubForm() {
-  // Build parent agent dropdown (only main agents)
+  // Build parent agent dropdown (agents with their own bot)
   const cfg = S.agents || [];
-  const mainAgent = cfg.find(a => a.id === 'main');
-  const parentOpts = mainAgent ? '<option value="main">' + esc(mainAgent.name || 'main') + '</option>' : '<option value="main">main</option>';
+  const botAgents = cfg.filter(a => a.hasOwnBot);
+  let parentOpts = '';
+  if (botAgents.length === 0) {
+    parentOpts = '<option value="">No agents with bot available</option>';
+  } else {
+    botAgents.forEach(a => {
+      parentOpts += '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>';
+    });
+  }
   const modelOpts = buildModelOpts('__default__');
   return '<div class="add-form">' +
     '<h3>' + t('agents.addSubTitle') + '</h3>' +
@@ -2271,6 +2356,8 @@ function buildAddSubForm() {
     '<li>' + t('guide.sub.s2') + '</li>' +
     '<li>' + t('guide.sub.s3') + '</li>' +
     '</ol></details>' +
+    '<div class="form-group"><label>Parent Agent</label>' +
+    '<select id="fs-parent">' + parentOpts + '</select></div>' +
     '<div class="form-group"><label>' + t('wiz.groupId') + '</label>' +
     '<input id="fs-gid" placeholder="-100XXXXXXXXXX">' +
     '<span class="hint-text">' + t('wiz.groupHint') + '</span></div>' +
@@ -2293,25 +2380,33 @@ function buildAddSubForm() {
     '</div></div>';
 }
 
-// ── Submit Add Agent (Main Bot) ──────────────────────────────
+// ── Submit Add Agent (with own bot) ──────────────────────────
 async function submitAddAgent() {
   const token = document.getElementById('fa-token').value.trim();
+  const agentId = document.getElementById('fa-agentid').value.trim();
   const name = document.getElementById('fa-name').value.trim();
+  const workspace = document.getElementById('fa-workspace').value.trim();
   const model = document.getElementById('fa-model').value;
   if (!token) { toast(t('agents.errToken'), 'err'); return; }
+  if (!agentId) { toast('Agent ID is required', 'err'); return; }
+  if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast('Agent ID must contain only alphanumeric characters, underscores, or dashes', 'err'); return; }
   if (!name) { toast(t('agents.errName'), 'err'); return; }
+  if (!workspace) { toast('Workspace name is required', 'err'); return; }
   try {
-    const r = await api('POST', '/api/agents/main', { botToken: token, name, model: model === '__default__' ? '' : model });
-    if (r.error) { toast(r.error, 'err'); return; }
-    toast(t('agents.agentCreated'), 'ok');
-    document.getElementById('addFormArea').innerHTML = '';
+    const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model };
+    const r = await api('POST', '/api/agents/bot', payload);
+    toast('Agent created successfully', 'ok');
+    closePopover();
     showRestartBanner();
     await loadAll();
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) {
+    toast(e.message, 'err');
+  }
 }
 
 // ── Submit Add Sub-Agent ────────────────────────────────────
 async function submitAddSub() {
+  const parentAgentId = document.getElementById('fs-parent').value.trim();
   const groupId = document.getElementById('fs-gid').value.trim();
   const agentId = document.getElementById('fs-aid').value.trim();
   const displayName = document.getElementById('fs-name').value.trim();
@@ -2319,12 +2414,12 @@ async function submitAddSub() {
   const purpose = document.getElementById('fs-purpose').value.trim();
   const personality = document.getElementById('fs-soul').value.trim();
   const initialMemory = document.getElementById('fs-mem').value.trim();
+  if (!parentAgentId) { toast('Parent Agent is required', 'err'); return; }
   if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
   if (!agentId) { toast(t('wiz.errAgentId'), 'err'); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast(t('wiz.errIdFormat'), 'err'); return; }
-  if (agentId.toLowerCase() === 'main') { toast(t('wiz.errIdReserved'), 'err'); return; }
   try {
-    const r = await api('POST', '/api/agents', { agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory });
+    const r = await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory });
     if (r.error) { toast(r.error, 'err'); return; }
     toast(t('wiz.created'), 'ok');
     document.getElementById('addFormArea').innerHTML = '';
@@ -3059,7 +3154,7 @@ function cliCloseAC(){ const b=document.getElementById('cliACBox'); if(b) b.remo
   }
 })();
 
-// ── Stats（使用统计）────────────────────────────────────────
+// ── Stats (Usage Statistics) ────────────────────────────────
 async function loadStats(){
   try{
     const days=document.getElementById('statsDaysFilter')?.value||30;
@@ -3067,16 +3162,24 @@ async function loadStats(){
     const s=r.summary||{};
     document.getElementById('statsTotalInput').textContent=fmtNum(s.totalInputTokens||0);
     document.getElementById('statsTotalOutput').textContent=fmtNum(s.totalOutputTokens||0);
+    document.getElementById('statsCacheRead').textContent=fmtNum(s.totalCacheRead||0);
     document.getElementById('statsTotalCost').textContent=s.estimatedCost||'$0';
     const totalReqs=Object.values(r.byModel||{}).reduce((a,b)=>a+(b.requestCount||0),0);
     document.getElementById('statsTotalReqs').textContent=fmtNum(totalReqs);
     // by model
     const bmEl=document.getElementById('statsByModel');
-    const bmEntries=Object.entries(r.byModel||{});
-    bmEl.innerHTML=bmEntries.length?bmEntries.map(([m,d])=>\`<div class="card" style="padding:12px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px">\${esc(m)}</div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.8">In: \${fmtNum(d.inputTokens)} · Out: \${fmtNum(d.outputTokens)} · \${d.requestCount} reqs · $\${d.cost}</div>
-    </div>\`).join(''):'<div class="empty" style="padding:20px">'+t('stats.noData')+'</div>';
+    const bmEntries=Object.entries(r.byModel||{}).sort((a,b)=>(b[1].requestCount||0)-(a[1].requestCount||0));
+    bmEl.innerHTML=bmEntries.length?bmEntries.map(([m,d])=>'<div class="card" style="padding:12px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:6px">' + esc(m) + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);line-height:1.8">In: ' + fmtNum(d.inputTokens) + ' · Out: ' + fmtNum(d.outputTokens) + ' · Cache: ' + fmtNum(d.cacheRead||0) + ' · ' + d.requestCount + ' reqs · $' + d.cost + '</div>' +
+    '</div>').join(''):'<div class="empty" style="padding:20px">'+t('stats.noData')+'</div>';
+    // by agent
+    const baEl=document.getElementById('statsByAgent');
+    const baEntries=Object.entries(r.byAgent||{}).sort((a,b)=>(b[1].requestCount||0)-(a[1].requestCount||0));
+    baEl.innerHTML=baEntries.length?baEntries.map(([a,d])=>'<div class="card" style="padding:12px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:6px">' + esc(a) + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);line-height:1.8">In: ' + fmtNum(d.inputTokens) + ' · Out: ' + fmtNum(d.outputTokens) + ' · ' + d.requestCount + ' reqs · $' + d.cost + '</div>' +
+    '</div>').join(''):'<div class="empty" style="padding:20px">No data</div>';
     // by day chart
     const chartEl=document.getElementById('statsChart');
     const dayEntries=Object.entries(r.byDay||{}).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -3085,12 +3188,12 @@ async function loadStats(){
     chartEl.innerHTML=dayEntries.map(([day,d])=>{
       const total=(d.inputTokens||0)+(d.outputTokens||0);
       const pct=Math.max(2,total/maxTk*100);
-      return \`<div style="flex:1;min-width:12px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="\${day}: \${fmtNum(total)} tokens · $\${d.cost}">
-        <div style="width:100%;max-width:28px;background:var(--accent);height:\${pct}%;border-radius:3px 3px 0 0;opacity:.8;min-height:2px"></div>
-        <div style="font-size:8px;color:var(--muted);margin-top:3px;writing-mode:vertical-rl;transform:rotate(180deg)">\${day.slice(5)}</div>
-      </div>\`;
+      return '<div style="flex:1;min-width:12px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="' + day + ': ' + fmtNum(total) + ' tokens · $' + d.cost + '">' +
+        '<div style="width:100%;max-width:28px;background:var(--accent);height:' + pct + '%;border-radius:3px 3px 0 0;opacity:.8;min-height:2px"></div>' +
+        '<div style="font-size:8px;color:var(--muted);margin-top:3px;writing-mode:vertical-rl;transform:rotate(180deg)">' + day.slice(5) + '</div>' +
+      '</div>';
     }).join('');
-  }catch(e){ toast((lang==='en'?'Stats load failed: ':'统计加载失败: ')+e.message,'error'); }
+  }catch(e){ toast('Stats load failed: '+e.message,'error'); }
 }
 function fmtNum(n){ if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return String(n); }
 
@@ -3362,7 +3465,7 @@ async function api(method,path,body){
   if(body) opts.body=JSON.stringify(body);
   const r=await fetch(path,opts);
   const d=await r.json();
-  if(!r.ok) throw new Error(d.error||r.status);
+  if(!r.ok){ const e=new Error(d.error||r.status); e.data=d; e.status=r.status; throw e; }
   return d;
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
