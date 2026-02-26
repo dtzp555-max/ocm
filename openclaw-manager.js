@@ -345,6 +345,7 @@ async function handleApi(req, res, urlObj, body) {
     const defaults = cfg.agents?.defaults || {};
     const bindings = cfg.bindings         || [];
     const groups   = cfg.channels?.telegram?.groups || {};
+    const defaultWorkspace = defaults.workspace || null;
     const enriched = list.map(a => {
       const binding = bindings.find(b => b.agentId === a.id && b.match?.peer?.kind === 'group');
       const groupId = binding?.match?.peer?.id || null;
@@ -356,7 +357,9 @@ async function handleApi(req, res, urlObj, body) {
       // For sub-agents (with peer match), find which accountId they belong to
       const parentBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId);
       const parentAccountId = parentBinding?.match?.accountId || null;
-      return { ...a, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
+      // Workspace: explicit per-agent, or defaults.workspace for main
+      const workspace = a.workspace || (a.id === 'main' ? defaultWorkspace : null);
+      return { ...a, workspace, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
         effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId };
     });
     res.writeHead(200);
@@ -1472,7 +1475,9 @@ main { padding:20px; max-width:1280px; margin:0 auto; }
 
 /* Agents layout — buttons top, tree below */
 .agents-top-btns { display:flex; gap:10px; justify-content:center; margin-bottom:18px; }
-.agents-tree-wrap { max-width:720px; margin:0 auto; overflow-y:auto; }
+.agents-tree-wrap { max-width:900px; margin:0 auto; overflow-y:auto; }
+.agents-roots { display:flex; gap:16px; flex-wrap:wrap; }
+.agents-roots > .agent-tree-root { flex:1; min-width:320px; }
 
 /* Add form */
 .add-form { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
@@ -2667,15 +2672,15 @@ function renderAgents() {
     h += '<div class="tree-actions">';
     h += '<select class="inline-sel" id="msel-' + a.id + '">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
     h += '<button class="btn-secondary" data-action="saveModel" data-id="' + esc(a.id) + '">' + t('agents.saveModel') + '</button>';
-    if (a.workspace || !isRoot) h += '<button class="btn-secondary" data-action="viewWs" data-id="' + esc(a.id) + '">' + t('agents.viewFiles') + '</button>';
+    h += '<button class="btn-secondary" data-action="viewWs" data-id="' + esc(a.id) + '">' + t('agents.viewFiles') + '</button>';
     if (a.id !== 'main') h += '<button class="btn-danger" data-action="delAgent" data-id="' + esc(a.id) + '" data-name="' + esc(a.name || a.id) + '">' + t('btn.delete') + '</button>';
     h += '</div></div>';
     return h;
   }
 
-  let html = '';
+  let html = '<div class="agents-roots">';
 
-  // Render each root with its children
+  // Render each root with its children, side by side
   roots.forEach(root => {
     const children = subsByRoot[root.id] || [];
     html += '<div class="agent-tree-root">';
@@ -2698,6 +2703,7 @@ function renderAgents() {
     html += '</div>';
   });
 
+  html += '</div>';
   el.innerHTML = html;
 
   // Event delegation for agent tree buttons
