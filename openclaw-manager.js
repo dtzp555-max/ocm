@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.6.5';
+const APP_VERSION = '0.6.6';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -346,19 +346,28 @@ async function handleApi(req, res, urlObj, body) {
     const bindings = cfg.bindings         || [];
     const groups   = cfg.channels?.telegram?.groups || {};
     const defaultWorkspace = defaults.workspace || null;
+    // Build set of accountIds explicitly claimed by non-main agents (via non-peer binding)
+    const telegramAccounts = Object.keys(cfg.channels?.telegram?.accounts || {});
+    const claimedAccounts = new Set(
+      bindings.filter(b => b.agentId !== 'main' && b.match?.accountId && !b.match?.peer).map(b => b.match.accountId)
+    );
+    // For main agent without explicit binding, infer its accountId from first unclaimed telegram account
+    const mainInferredAccountId = telegramAccounts.find(a => !claimedAccounts.has(a)) || telegramAccounts[0] || null;
     const enriched = list.map(a => {
       const binding = bindings.find(b => b.agentId === a.id && b.match?.peer?.kind === 'group');
       const groupId = binding?.match?.peer?.id || null;
       const modelVal = a.model?.primary || (typeof a.model === 'string' ? a.model : null);
-      // Check if agent has its own bot account (binding with accountId but no peer, or accountId matching agent ID)
+      // Check if agent has its own bot account (binding with accountId but no peer)
       const botBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId && !b.match?.peer);
-      const hasOwnBot = botBinding ? true : false;
-      const accountId = botBinding?.match?.accountId || null;
+      // 'main' is always a root agent even without explicit binding
+      const isMain = a.id === 'main';
+      const hasOwnBot = botBinding ? true : isMain;
+      const accountId = botBinding?.match?.accountId || (isMain ? mainInferredAccountId : null);
       // For sub-agents (with peer match), find which accountId they belong to
       const parentBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId);
       const parentAccountId = parentBinding?.match?.accountId || null;
       // Workspace: explicit per-agent, or defaults.workspace for main
-      const workspace = a.workspace || (a.id === 'main' ? defaultWorkspace : null);
+      const workspace = a.workspace || (isMain ? defaultWorkspace : null);
       return { ...a, workspace, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
         effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId };
     });

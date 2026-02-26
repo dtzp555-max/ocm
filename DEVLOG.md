@@ -1,7 +1,21 @@
 # OpenClaw Manager — 开发日志
 
-> 最后更新：2026-02-26
-> 当前版本：v0.6.5
+> 最后更新：2026-02-27
+> 当前版本：v0.6.6
+
+---
+
+## v0.6.6 更新日志（2026-02-27）
+
+### Bug Fixes
+
+**Agent tree: main agent not detected as root**
+- **Symptom**: Sub-agents displayed as independent agents instead of under their parent. All agents appeared as orphan roots.
+- **Root cause**: `main` agent in OpenClaw is the default catch-all and typically has NO explicit binding in `openclaw.json`. The `hasOwnBot` detection required an explicit binding with `accountId && !peer`, so `main` was classified as a non-root. Without `main` being a root, sub-agents' `parentAccountId` had no matching root to link to.
+- **Fix**:
+  - `main` is now always treated as a root agent regardless of binding existence
+  - `main`'s `accountId` is inferred from `channels.telegram.accounts`: first unclaimed account (not explicitly bound to another agent), or first account as fallback
+  - Sub-agents with `parentAccountId` matching `main`'s inferred `accountId` now correctly appear under `main` in the tree
 
 ---
 
