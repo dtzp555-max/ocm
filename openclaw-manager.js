@@ -352,8 +352,12 @@ async function handleApi(req, res, urlObj, body) {
       // Check if agent has its own bot account (binding with accountId but no peer, or accountId matching agent ID)
       const botBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId && !b.match?.peer);
       const hasOwnBot = botBinding ? true : false;
+      const accountId = botBinding?.match?.accountId || null;
+      // For sub-agents (with peer match), find which accountId they belong to
+      const parentBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId);
+      const parentAccountId = parentBinding?.match?.accountId || null;
       return { ...a, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
-        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot };
+        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId };
     });
     res.writeHead(200);
     res.end(JSON.stringify({ agents: enriched, defaults }));
@@ -1466,12 +1470,9 @@ main { padding:20px; max-width:1280px; margin:0 auto; }
 .inline-sel { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:5px 8px; font-size:12px; }
 .inline-sel:focus { outline:none; border-color:var(--accent); }
 
-/* Agents split layout */
-.agents-split { display:flex; gap:20px; height:calc(100vh - 160px); }
-.agents-left { flex:0 0 40%; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
-.agents-right { flex:1; overflow-y:auto; padding-right:4px; }
-.agents-left-btns { display:flex; gap:8px; }
-.agents-left-btns .btn-primary { flex:1; }
+/* Agents layout — buttons top, tree below */
+.agents-top-btns { display:flex; gap:10px; justify-content:center; margin-bottom:18px; }
+.agents-tree-wrap { max-width:720px; margin:0 auto; overflow-y:auto; }
 
 /* Add form */
 .add-form { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
@@ -1488,7 +1489,12 @@ main { padding:20px; max-width:1280px; margin:0 auto; }
 .agent-tree-root .tree-main:hover { border-color:var(--accent); }
 .agent-tree-root .tree-main .tree-title { font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; }
 .agent-tree-root .tree-main .tree-meta { font-size:11px; color:var(--muted); margin-top:4px; }
-.tree-children { margin-left:20px; border-left:2px solid var(--border); padding-left:14px; margin-top:6px; }
+.tree-children-wrap { position:relative; margin-left:20px; padding-left:14px; margin-top:6px; }
+.tree-children-wrap::before { content:''; position:absolute; left:0; top:0; bottom:8px; width:2px; background:var(--border); }
+.tree-toggle { position:absolute; left:-8px; top:-4px; width:18px; height:18px; border-radius:50%; background:var(--surface); border:1.5px solid var(--border); color:var(--muted); font-size:12px; line-height:15px; text-align:center; cursor:pointer; z-index:2; padding:0; }
+.tree-toggle:hover { border-color:var(--accent); color:var(--accent); }
+.tree-children { }
+.tree-children.collapsed { display:none; }
 .tree-child { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
 .tree-child:hover { border-color:var(--accent); }
 .tree-child .tree-title { font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; }
@@ -1729,19 +1735,13 @@ const MAIN_HTML_BODY = String.raw`
 
   <!-- ══ Agents ════════════════════════════════════════════════ -->
   <div class="panel" id="panel-agents">
-    <div class="agents-split">
-      <!-- Left: Add forms -->
-      <div class="agents-left">
-        <div class="agents-left-btns">
-          <button class="btn-primary" onclick="showAddForm('agent')" data-i18n="agents.addAgent">＋ Add Agent</button>
-          <button class="btn-primary" onclick="showAddForm('sub')" data-i18n="agents.addSub">＋ Add Sub-Agent</button>
-        </div>
-        <div id="addFormArea"></div>
-      </div>
-      <!-- Right: Agent tree -->
-      <div class="agents-right">
-        <div id="agentTree"><div class="empty" data-i18n="agents.empty">No Agents</div></div>
-      </div>
+    <div class="agents-top-btns">
+      <button class="btn-primary" onclick="showAddForm('agent')" data-i18n="agents.addAgent">＋ Add Agent</button>
+      <button class="btn-primary" onclick="showAddForm('sub')" data-i18n="agents.addSub">＋ Add Sub-Agent</button>
+    </div>
+    <div id="addFormArea"></div>
+    <div class="agents-tree-wrap">
+      <div id="agentTree"><div class="empty" data-i18n="agents.empty">No Agents</div></div>
     </div>
   </div>
 
@@ -2631,63 +2631,92 @@ function renderAgents() {
   const el = document.getElementById('agentTree');
   if (!S.agents.length) { el.innerHTML = '<div class="empty">' + t('agents.empty') + '</div>'; return; }
 
-  // Build tree: main agent as root, subagents as children
-  const mainAgent = S.agents.find(a => a.id === 'main');
-  const subs = S.agents.filter(a => a.id !== 'main');
+  // Build tree: each hasOwnBot agent is a root, others are sub-agents grouped by parentAccountId
+  const roots = S.agents.filter(a => a.hasOwnBot);
+  const subs  = S.agents.filter(a => !a.hasOwnBot);
+
+  // Map accountId -> root agent for sub-agent grouping
+  const rootByAccount = {};
+  roots.forEach(a => { if (a.accountId) rootByAccount[a.accountId] = a; });
+
+  // Group subs under their parent
+  const subsByRoot = {};
+  const orphanSubs = [];
+  subs.forEach(a => {
+    const parentAcct = a.parentAccountId;
+    if (parentAcct && rootByAccount[parentAcct]) {
+      const rootId = rootByAccount[parentAcct].id;
+      if (!subsByRoot[rootId]) subsByRoot[rootId] = [];
+      subsByRoot[rootId].push(a);
+    } else {
+      orphanSubs.push(a);
+    }
+  });
+
+  function agentCard(a, isRoot) {
+    let h = '';
+    const icon = isRoot ? '🤖' : '📱';
+    const cls  = isRoot ? 'tree-main' : 'tree-child';
+    h += '<div class="' + cls + '">';
+    h += '<div class="tree-title">' + icon + ' ' + esc(a.name || a.id);
+    if (isRoot) h += ' <span class="badge main">' + (a.id === 'main' ? t('agents.main') : 'Bot') + '</span>';
+    if (a.groupId) h += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
+    h += '</div>';
+    h += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
+    if (a.workspace) h += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
+    h += '<div class="tree-actions">';
+    h += '<select class="inline-sel" id="msel-' + a.id + '">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
+    h += '<button class="btn-secondary" data-action="saveModel" data-id="' + esc(a.id) + '">' + t('agents.saveModel') + '</button>';
+    if (a.workspace || !isRoot) h += '<button class="btn-secondary" data-action="viewWs" data-id="' + esc(a.id) + '">' + t('agents.viewFiles') + '</button>';
+    if (a.id !== 'main') h += '<button class="btn-danger" data-action="delAgent" data-id="' + esc(a.id) + '" data-name="' + esc(a.name || a.id) + '">' + t('btn.delete') + '</button>';
+    h += '</div></div>';
+    return h;
+  }
 
   let html = '';
 
-  // Main agent tree
-  if (mainAgent) {
+  // Render each root with its children
+  roots.forEach(root => {
+    const children = subsByRoot[root.id] || [];
     html += '<div class="agent-tree-root">';
-    html += '<div class="tree-main">';
-    html += '<div class="tree-title">🤖 ' + esc(mainAgent.name || 'main') + ' <span class="badge main">' + t('agents.main') + '</span></div>';
-    html += '<div class="tree-meta">🧠 ' + esc(mainAgent.effectiveModel) + '</div>';
-    if (mainAgent.workspace) html += '<div class="tree-meta">📁 ' + esc(mainAgent.workspace) + '</div>';
-    html += '<div class="tree-actions">';
-    html += '<select class="inline-sel" id="msel-main" onchange="">' + buildModelOpts(mainAgent.effectiveModel !== t('agents.noModel') ? mainAgent.effectiveModel : '__default__') + '</select>';
-    html += '<button class="btn-secondary" onclick="saveAgentModel(\\'main\\')">' + t('agents.saveModel') + '</button>';
-    html += '</div></div>';
-
-    // Sub-agents as children
-    if (subs.length) {
-      html += '<div class="tree-children">';
-      subs.forEach(a => {
-        html += '<div class="tree-child">';
-        html += '<div class="tree-title">📱 ' + esc(a.name || a.id);
-        if (a.groupId) html += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
-        html += '</div>';
-        html += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
-        if (a.workspace) html += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
-        html += '<div class="tree-actions">';
-        html += '<select class="inline-sel" id="msel-' + a.id + '" onchange="">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
-        html += '<button class="btn-secondary" onclick="saveAgentModel(\\'' + a.id + '\\')">' + t('agents.saveModel') + '</button>';
-        html += '<button class="btn-secondary" onclick="viewWorkspace(\\'' + a.id + '\\')">' + t('agents.viewFiles') + '</button>';
-        html += '<button class="btn-danger" onclick="deleteAgent(\\'' + a.id + '\\',\\'' + esc(a.name || a.id) + '\\')">' + t('btn.delete') + '</button>';
-        html += '</div></div>';
-      });
-      html += '</div>';
+    html += agentCard(root, true);
+    if (children.length) {
+      const treeId = 'tree-' + root.id;
+      html += '<div class="tree-children-wrap">';
+      html += '<button class="tree-toggle" onclick="toggleTree(\\'' + treeId + '\\',this)" title="Expand / Collapse">−</button>';
+      html += '<div class="tree-children" id="' + treeId + '">';
+      children.forEach(c => { html += agentCard(c, false); });
+      html += '</div></div>';
     }
     html += '</div>';
-  } else if (subs.length) {
-    // No main agent but has subs (edge case)
-    subs.forEach(a => {
-      html += '<div class="agent-tree-root"><div class="tree-child">';
-      html += '<div class="tree-title">📱 ' + esc(a.name || a.id);
-      if (a.groupId) html += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
-      html += '</div>';
-      html += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
-      if (a.workspace) html += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
-      html += '<div class="tree-actions">';
-      html += '<select class="inline-sel" id="msel-' + a.id + '" onchange="">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
-      html += '<button class="btn-secondary" onclick="saveAgentModel(\\'' + a.id + '\\')">' + t('agents.saveModel') + '</button>';
-      html += '<button class="btn-secondary" onclick="viewWorkspace(\\'' + a.id + '\\')">' + t('agents.viewFiles') + '</button>';
-      html += '<button class="btn-danger" onclick="deleteAgent(\\'' + a.id + '\\',\\'' + esc(a.name || a.id) + '\\')">' + t('btn.delete') + '</button>';
-      html += '</div></div></div>';
-    });
-  }
+  });
+
+  // Orphan subs (no matching root — edge case)
+  orphanSubs.forEach(a => {
+    html += '<div class="agent-tree-root">';
+    html += agentCard(a, false);
+    html += '</div>';
+  });
 
   el.innerHTML = html;
+
+  // Event delegation for agent tree buttons
+  el.onclick = function(ev) {
+    const btn = ev.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    if (action === 'saveModel') saveAgentModel(id);
+    else if (action === 'viewWs') viewWorkspace(id);
+    else if (action === 'delAgent') deleteAgent(id, btn.dataset.name);
+  };
+}
+
+function toggleTree(treeId, btn) {
+  const el = document.getElementById(treeId);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  btn.textContent = el.classList.contains('collapsed') ? '+' : '−';
 }
 
 function buildModelOpts(selected){
