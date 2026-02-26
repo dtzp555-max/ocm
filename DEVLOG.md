@@ -1,7 +1,40 @@
 # OpenClaw Manager — 开发日志
 
 > 最后更新：2026-02-26
-> 当前版本：v0.6.0
+> 当前版本：v0.6.5
+
+---
+
+## v0.6.5 更新日志（2026-02-26）
+
+### New Features
+
+**Dashboard Tab (🏠 Dashboard)**
+- New default landing tab showing system overview at a glance
+- **System card**: hostname, OS, Node.js version, CPU model/cores, uptime, memory usage with progress bar
+- **Gateway card**: process status indicator (running/stopped/unknown) with coloured dot, port, PID, HTTP ping reachability
+- **Agents card**: total agent count, last session activity timestamp (Brisbane time), OCM version, server time
+- **Storage card**: OpenClaw dir size, disk usage with progress bar, free space
+- New `GET /api/dashboard` endpoint aggregates all info (ps grep + curl ping + fs stat)
+- Lazy-loaded on tab switch; auto-loaded on first page load
+
+**Cache-Control + Version-Based Cache Busting**
+- All HTTP responses now include `Cache-Control: no-store, no-cache, must-revalidate`
+- HTML responses include `ETag: "ocm-<version>"` for version-based cache validation
+- All responses include `X-OCM-Version` header
+- Browser `api()` function checks `X-OCM-Version` against client version; shows toast notification when server has been updated, prompting user to refresh
+- Prevents stale frontend from calling deleted/changed API endpoints after update
+
+### Cleanup
+
+**Old `/api/agents/main` endpoint fully removed** (confirmed via code search — no residual references)
+
+### Technical Notes
+
+- Dashboard gateway detection: `ps aux | grep openclaw.*gateway` for process status, `curl --max-time 2 http://127.0.0.1:<port>` for HTTP ping
+- Disk usage: `df -k` for filesystem stats, `du -sk` for OpenClaw dir size
+- Agent last activity: scans `~/.openclaw/agents/*/sessions/*.jsonl` mtime
+- Version cache busting: `OCM_CLIENT_VERSION` is injected into browser script via template literal `${APP_VERSION}`, compared against `X-OCM-Version` response header on every API call
 
 ---
 
@@ -100,15 +133,13 @@
 - **`assertBrowserScriptSyntax()`** 在启动时检查 MAIN_HTML_SCRIPT 的 evaluated 值
 - **OpenClaw config 多 bot 格式**：`channels.telegram.accounts.<id>.botToken`，binding 用 `accountId` 路由
 
-### 下一步（v0.6.1+）
+### 下一步（v0.6.2+）
 
-- [ ] Dashboard 首页 tab（系统信息 + OpenClaw health 状态）
-  - 系统：OS、Node 版本、uptime、内存、磁盘
-  - 健康：进程检测（ps grep）+ HTTP ping OpenClaw 端口
-  - Gateway 状态指示灯（running/stopped/unknown）
-  - Agent 数量、最近活动时间
-- [ ] HTTP 响应加 `Cache-Control: no-store` + version-based cache busting（防止浏览器缓存旧前端触发已删除的 API）
-- [ ] 彻底删除旧 `/api/agents/main` 端点残留（确认已清除）
+- [x] Dashboard 首页 tab（系统信息 + OpenClaw health 状态）— done in v0.6.5
+- [x] HTTP 响应加 `Cache-Control: no-store` + version-based cache busting — done in v0.6.5
+- [x] 彻底删除旧 `/api/agents/main` 端点残留（确认已清除）— confirmed in v0.6.5
+- [ ] Dashboard: auto-refresh every 30s when tab is active
+- [ ] Dashboard: OpenClaw version display (from `openclaw --version`)
 - [ ] DEVLOG.md 中文 → 逐步迁移为英文
 
 ---

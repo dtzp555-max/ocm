@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.6.0
+// OpenClaw Manager v0.6.5
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.6.5';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -1208,6 +1208,108 @@ async function handleApi(req, res, urlObj, body) {
     return;
   }
 
+  // GET /api/dashboard — system info + gateway health for Dashboard tab
+  if (method === 'GET' && pathname === '/api/dashboard') {
+    try {
+      const cfg = await configExists() ? await readConfig() : null;
+      // System info
+      const sysUptime = os.uptime();
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      const nodeVer = process.version;
+      const platform = `${os.type()} ${os.release()} (${os.arch()})`;
+      const hostname = os.hostname();
+      const cpus = os.cpus();
+      const cpuModel = cpus.length ? cpus[0].model.trim() : 'Unknown';
+      const cpuCores = cpus.length;
+
+      // Disk usage (best-effort, works on macOS/Linux)
+      let diskTotal = 0, diskUsed = 0, diskFree = 0;
+      try {
+        const dfOut = execSync('df -k ' + JSON.stringify(OPENCLAW_DIR), { encoding: 'utf8', timeout: 3000 });
+        const dfLines = dfOut.trim().split('\\n');
+        if (dfLines.length >= 2) {
+          const parts = dfLines[1].split(/\\s+/);
+          diskTotal = parseInt(parts[1] || 0) * 1024;
+          diskUsed  = parseInt(parts[2] || 0) * 1024;
+          diskFree  = parseInt(parts[3] || 0) * 1024;
+        }
+      } catch (_) {}
+
+      // OpenClaw dir size (best-effort)
+      let dirSize = 0;
+      try {
+        const duOut = execSync('du -sk ' + JSON.stringify(OPENCLAW_DIR), { encoding: 'utf8', timeout: 5000 });
+        dirSize = parseInt(duOut.split(/\\s/)[0] || 0) * 1024;
+      } catch (_) {}
+
+      // Gateway process detection
+      let gatewayRunning = 'unknown';
+      let gatewayPid = null;
+      try {
+        const psOut = execSync("ps aux 2>/dev/null | grep -i 'openclaw.*gateway' | grep -v grep", { encoding: 'utf8', timeout: 3000 }).trim();
+        if (psOut) {
+          gatewayRunning = 'running';
+          const psParts = psOut.split(/\\s+/);
+          gatewayPid = psParts[1] || null;
+        } else {
+          gatewayRunning = 'stopped';
+        }
+      } catch (_) { gatewayRunning = 'stopped'; }
+
+      // HTTP ping gateway (port from config or default 3000)
+      let gatewayPort = null;
+      let gatewayPing = false;
+      try {
+        if (cfg && cfg.channels && cfg.channels.telegram) {
+          gatewayPort = cfg.channels.telegram.port || null;
+        }
+        if (!gatewayPort) gatewayPort = 3000;
+        const pingResult = spawnSync('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', 'http://127.0.0.1:' + gatewayPort], { encoding: 'utf8', timeout: 4000 });
+        const code = parseInt((pingResult.stdout || '').trim());
+        gatewayPing = code > 0 && code < 500;
+      } catch (_) {}
+
+      // Agent count & last activity
+      let agentCount = 0;
+      let lastActivity = null;
+      try {
+        const sessionsBase = path.join(OPENCLAW_DIR, 'agents');
+        const agentDirs = await fsp.readdir(sessionsBase);
+        agentCount = agentDirs.length;
+        for (const ad of agentDirs) {
+          const sessDir = path.join(sessionsBase, ad, 'sessions');
+          try {
+            const sessFiles = await fsp.readdir(sessDir);
+            for (const sf of sessFiles) {
+              if (sf.endsWith('.jsonl')) {
+                const st = await fsp.stat(path.join(sessDir, sf));
+                if (!lastActivity || st.mtime > lastActivity) lastActivity = st.mtime;
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // Brisbane time for display
+      const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
+
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        ok: true,
+        system: { hostname, platform, nodeVer, cpuModel, cpuCores, uptime: sysUptime, totalMem, freeMem, diskTotal, diskUsed, diskFree, dirSize },
+        gateway: { status: gatewayRunning, pid: gatewayPid, port: gatewayPort, ping: gatewayPing },
+        agents: { count: agentCount, lastActivity: lastActivity ? lastActivity.toISOString() : null },
+        ocmVersion: APP_VERSION,
+        serverTime: now,
+      }));
+    } catch (e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
   // POST /api/gateway/doctor
   if (method === 'POST' && pathname === '/api/gateway/doctor') {
     try {
@@ -1426,6 +1528,23 @@ select option { background:var(--surface); }
 .input-pw-wrap input { padding-right:36px; }
 .pw-toggle { position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0; }
 
+/* ── Dashboard ── */
+.dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.dash-card { padding:20px; }
+.dash-card h3 { font-size:14px; font-weight:600; margin-bottom:14px; color:var(--text); }
+.dash-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+.dash-row:last-child { border-bottom:none; }
+.dash-label { color:var(--muted); }
+.dash-val { color:var(--text); font-weight:500; font-family:monospace; font-size:11px; }
+.dash-indicator { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+.dash-indicator.running { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.5); }
+.dash-indicator.stopped { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.5); }
+.dash-indicator.unknown { background:#f59e0b; }
+.dash-bar-wrap { width:100%; height:6px; background:var(--border); border-radius:3px; margin-top:4px; }
+.dash-bar { height:100%; border-radius:3px; background:var(--accent); transition:width .3s; }
+.dash-bar.warn { background:#f59e0b; }
+.dash-bar.danger { background:#ef4444; }
+
 /* ── Modal ── */
 .backdrop { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; display:none; align-items:center; justify-content:center; }
 .backdrop.open { display:flex; }
@@ -1567,7 +1686,8 @@ const MAIN_HTML_BODY = String.raw`
 
 <!-- Tabs -->
 <nav>
-  <div class="tab active" data-tab="agents"><span data-i18n="tab.agents">🤖 Agents</span></div>
+  <div class="tab active" data-tab="dashboard"><span data-i18n="tab.dashboard">🏠 Dashboard</span></div>
+  <div class="tab" data-tab="agents"><span data-i18n="tab.agents">🤖 Agents</span></div>
   <div class="tab" data-tab="channels"><span data-i18n="tab.channels">📡 Channels</span></div>
   <div class="tab" data-tab="models"><span data-i18n="tab.models">🧠 模型</span></div>
   <div class="tab" data-tab="auth"><span data-i18n="tab.auth">🔑 认证</span></div>
@@ -1585,8 +1705,30 @@ const MAIN_HTML_BODY = String.raw`
     <button class="btn-ghost" onclick="dismissBanner()" style="font-size:11px" data-i18n="banner.dismiss">忽略</button>
   </div>
 
+  <!-- ══ Dashboard ════════════════════════════════════════════ -->
+  <div class="panel active" id="panel-dashboard">
+    <div class="dash-grid" id="dashGrid">
+      <div class="card dash-card" id="dashSystem">
+        <h3>🖥️ System</h3>
+        <div class="dash-items" id="dashSysItems"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="card dash-card" id="dashGateway">
+        <h3>🦀 Gateway</h3>
+        <div class="dash-items" id="dashGwItems"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="card dash-card" id="dashAgents">
+        <h3>🤖 Agents</h3>
+        <div class="dash-items" id="dashAgentItems"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="card dash-card" id="dashStorage">
+        <h3>💾 Storage</h3>
+        <div class="dash-items" id="dashStorageItems"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ Agents ════════════════════════════════════════════════ -->
-  <div class="panel active" id="panel-agents">
+  <div class="panel" id="panel-agents">
     <div class="agents-split">
       <!-- Left: Add forms -->
       <div class="agents-left">
@@ -1957,6 +2099,7 @@ const MAIN_HTML_BODY = String.raw`
 const MAIN_HTML_SCRIPT = `// ── i18n ──────────────────────────────────────────────────────
 const I18N = {
   zh: {
+    'tab.dashboard':'🏠 Dashboard',
     'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 模型','tab.auth':'🔑 认证',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ 新建 Subagent',
@@ -2063,6 +2206,7 @@ const I18N = {
     'nas.backupToast':'NAS 备份完成','nas.errNoHost':'请填写主机和用户名',
   },
   en: {
+    'tab.dashboard':'🏠 Dashboard',
     'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 Models','tab.auth':'🔑 Auth',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ New Subagent',
@@ -2244,6 +2388,60 @@ async function checkStatus(){
 }
 
 async function loadAll(){ await Promise.all([loadAgents(), loadModels(), loadChannels()]); }
+
+// ── Dashboard ─────────────────────────────────────────────────
+let dashLoaded=false;
+function fmtBytes(b){if(!b||b<=0)return '—';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(i>0?1:0)+' '+u[i];}
+function fmtUptime(s){const d=Math.floor(s/86400);const h=Math.floor((s%86400)/3600);const m=Math.floor((s%3600)/60);if(d>0)return d+'d '+h+'h '+m+'m';if(h>0)return h+'h '+m+'m';return m+'m';}
+function dashRow(label,val){return '<div class="dash-row"><span class="dash-label">'+esc(label)+'</span><span class="dash-val">'+val+'</span></div>';}
+function dashBar(pct){const cls=pct>90?'danger':pct>70?'warn':'';return '<div class="dash-bar-wrap"><div class="dash-bar '+cls+'" style="width:'+Math.min(pct,100)+'%"></div></div>';}
+async function loadDashboard(){
+  try{
+    const r=await api('GET','/api/dashboard');
+    if(!r.ok)return;
+    const s=r.system, g=r.gateway, a=r.agents;
+    // System card
+    const memPct=s.totalMem?((s.totalMem-s.freeMem)/s.totalMem*100):0;
+    let sysHtml=dashRow('Hostname',esc(s.hostname));
+    sysHtml+=dashRow('OS',esc(s.platform));
+    sysHtml+=dashRow('Node.js',esc(s.nodeVer));
+    sysHtml+=dashRow('CPU',esc(s.cpuModel)+' ('+s.cpuCores+' cores)');
+    sysHtml+=dashRow('Uptime',fmtUptime(s.uptime));
+    sysHtml+=dashRow('Memory',fmtBytes(s.totalMem-s.freeMem)+' / '+fmtBytes(s.totalMem)+' ('+memPct.toFixed(0)+'%)');
+    sysHtml+=dashBar(memPct);
+    document.getElementById('dashSysItems').innerHTML=sysHtml;
+    // Gateway card
+    const statusIcon='<span class="dash-indicator '+esc(g.status)+'"></span>';
+    const statusLabel=g.status==='running'?'Running':g.status==='stopped'?'Stopped':'Unknown';
+    let gwHtml=dashRow('Status',statusIcon+statusLabel);
+    gwHtml+=dashRow('Port',String(g.port||'—'));
+    if(g.pid)gwHtml+=dashRow('PID',g.pid);
+    gwHtml+=dashRow('HTTP Ping',g.ping?'<span style="color:#22c55e">✓ Reachable</span>':'<span style="color:#ef4444">✗ Unreachable</span>');
+    document.getElementById('dashGwItems').innerHTML=gwHtml;
+    // Agents card
+    let agHtml=dashRow('Total Agents',String(a.count));
+    if(a.lastActivity){
+      const d=new Date(a.lastActivity);
+      agHtml+=dashRow('Last Activity',d.toLocaleString('en-AU',{timeZone:'Australia/Brisbane',hour12:false}));
+    }else{
+      agHtml+=dashRow('Last Activity','—');
+    }
+    agHtml+=dashRow('OCM Version','v'+esc(r.ocmVersion));
+    agHtml+=dashRow('Server Time',esc(r.serverTime));
+    document.getElementById('dashAgentItems').innerHTML=agHtml;
+    // Storage card
+    let stHtml=dashRow('OpenClaw Dir Size',fmtBytes(s.dirSize));
+    if(s.diskTotal>0){
+      const diskPct=s.diskUsed/s.diskTotal*100;
+      stHtml+=dashRow('Disk',fmtBytes(s.diskUsed)+' / '+fmtBytes(s.diskTotal)+' ('+diskPct.toFixed(0)+'%)');
+      stHtml+=dashBar(diskPct);
+      stHtml+=dashRow('Disk Free',fmtBytes(s.diskFree));
+    }
+    document.getElementById('dashStorageItems').innerHTML=stHtml;
+    dashLoaded=true;
+  }catch(e){console.error('Dashboard load error:',e);}
+}
+
 let healthTimer=null;
 async function refreshHealth(){
   try{
@@ -3460,10 +3658,13 @@ function togglePwd(inputId,btn){
 }
 
 // ── 工具 ─────────────────────────────────────────────────────
+const OCM_CLIENT_VERSION='${APP_VERSION}';
 async function api(method,path,body){
   const opts={method,headers:{'Content-Type':'application/json'}};
   if(body) opts.body=JSON.stringify(body);
   const r=await fetch(path,opts);
+  const sv=r.headers.get('X-OCM-Version');
+  if(sv&&sv!==OCM_CLIENT_VERSION&&!window._ocmVersionWarn){window._ocmVersionWarn=true;toast('Server updated to v'+sv+'. Refresh page for latest version.','info');}
   const d=await r.json();
   if(!r.ok){ const e=new Error(d.error||r.status); e.data=d; e.status=r.status; throw e; }
   return d;
@@ -3490,7 +3691,8 @@ document.querySelectorAll('.tab').forEach(t=>{
     document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('panel-'+t.dataset.tab).classList.add('active');
-    // 懒加载
+    // lazy-load
+    if(t.dataset.tab==='dashboard'&&!dashLoaded) loadDashboard();
     if(t.dataset.tab==='stats') loadStats();
     if(t.dataset.tab==='cron') loadCrons();
   });
@@ -3500,7 +3702,7 @@ document.querySelectorAll('.tab').forEach(t=>{
 (function() {
   LS.del('ocm_mode');
   applyLang();
-  checkStatus().then(() => loadAll()).catch(e => console.error('Init error:', e));
+  checkStatus().then(() => { loadAll(); loadDashboard(); }).catch(e => console.error('Init error:', e));
   startHealthPolling();
 })();`;
 
@@ -3541,6 +3743,8 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-OCM-Version', APP_VERSION);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const urlObj = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -3551,7 +3755,7 @@ const server = http.createServer(async (req, res) => {
       await handleApi(req, res, urlObj, body);
     } else {
       const needsSetup = !(await configExists());
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'ETag': '"ocm-' + APP_VERSION + '"' });
       res.end(needsSetup ? SETUP_HTML : MAIN_HTML);
     }
   } catch (err) {
