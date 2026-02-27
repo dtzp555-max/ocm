@@ -1,6 +1,6 @@
 @echo off
 :: ================================================================
-:: OpenClaw Manager v0.6.0 — Start Script (Windows)
+:: OpenClaw Manager v0.7.1 — Start Script (Windows)
 ::
 :: Features:
 ::   * Auto-detect Node.js, show install instructions if missing
@@ -19,7 +19,7 @@ set "MIN_NODE_MAJOR=18"
 
 echo.
 echo   ===================================
-echo      OpenClaw Manager  v0.6.0
+echo      OpenClaw Manager  v0.7.1
 echo   -----------------------------------
 echo.
 

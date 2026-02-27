@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ================================================================
-# OpenClaw Manager v0.6.0 — Start Script (macOS / Linux)
+# OpenClaw Manager v0.7.1 — Start Script (macOS / Linux)
 #
 # Features:
 #   - Auto-detect Node.js, show install instructions if missing
@@ -22,7 +22,7 @@ CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
 
 banner() {
   echo ""
-  echo -e "${CYAN}${BOLD}  🦀 OpenClaw Manager v0.6.0${RESET}"
+  echo -e "${CYAN}${BOLD}  🦀 OpenClaw Manager v0.7.1${RESET}"
   echo -e "${DIM}  ─────────────────────────────${RESET}"
   echo ""
 }

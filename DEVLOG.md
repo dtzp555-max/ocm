@@ -1,7 +1,37 @@
 # OpenClaw Manager — 开发日志
 
 > 最后更新：2026-02-27
-> 当前版本：v0.7.0
+> 当前版本：v0.7.1
+
+---
+
+## v0.7.1 更新日志（2026-02-27）
+
+### New Features
+
+**Dashboard Guidance Block (Telegram-first usage + safety)**
+- Added a concise guidance card under Dashboard explaining OCM's intended Telegram workflow
+- Clarifies prerequisites: users should already have basic OpenClaw CLI experience
+- Clarifies purpose: OCM mainly helps visualize and update `openclaw.json` for easier main-agent/sub-agent management and multi-tree structures
+- Added explicit Telegram security checklist:
+  - BotFather `Allow Groups = ON`
+  - BotFather `Group Privacy = OFF`
+  - Keep each group private (only you + agent/sub-agents), do not invite others
+
+### Improvements
+
+**Model Dropdown Source — only `openclaw models list`**
+- Model dropdown options are now sourced from real CLI output (`openclaw models list`) instead of built-in/static lists or config-only additions
+- Applies to all relevant selectors: agent/sub-agent creation forms, agent inline model switcher, primary model selector, and fallback picker
+- Added warning message when model list loading/parsing fails
+
+### Technical Notes
+
+- Added model ID parser for CLI output and short-term cache for model list fetches
+- `GET /api/models` now returns:
+  - `knownModels` from CLI
+  - `modelListError` for UI warning display
+- Startup script banners updated to `v0.7.1` (`start.sh` / `start.bat`)
 
 ---
 

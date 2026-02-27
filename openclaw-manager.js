@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.7.0
+// OpenClaw Manager v0.7.1
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.7.1';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -195,6 +195,37 @@ function runOpenclawCmd(args) {
       else resolve(stripAnsi(stdout + stderr));
     });
   });
+}
+
+function parseModelIdsFromCliOutput(raw) {
+  if (!raw) return [];
+  const set = new Set();
+  const isModelId = (s) => /^[a-z0-9][a-z0-9_-]*(?:\/[A-Za-z0-9._:-]+)+$/.test(s);
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.replace(/^[-*]\s+/, '');
+    const first = normalized.split(/\s+/)[0].replace(/^`|`$/g, '');
+    if (isModelId(first)) set.add(first);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+let MODEL_LIST_CACHE = { ts: 0, knownModels: [], error: '' };
+async function getKnownModelsFromCli() {
+  const now = Date.now();
+  if (now - MODEL_LIST_CACHE.ts < 30000) return MODEL_LIST_CACHE;
+  try {
+    const out = await runOpenclawCmd('models list');
+    const ids = parseModelIdsFromCliOutput(out);
+    const knownModels = ids.map(id => ({ id, label: id, group: id.split('/')[0] || 'other' }));
+    const error = knownModels.length ? '' : 'No model IDs found in `openclaw models list` output';
+    MODEL_LIST_CACHE = { ts: now, knownModels, error };
+    return MODEL_LIST_CACHE;
+  } catch (e) {
+    MODEL_LIST_CACHE = { ts: now, knownModels: [], error: e.message || 'openclaw models list failed' };
+    return MODEL_LIST_CACHE;
+  }
 }
 
 // 过滤 ANSI 终端控制码（光标移动、清行、颜色等）
@@ -628,13 +659,15 @@ async function handleApi(req, res, urlObj, body) {
   // GET /api/models
   if (method === 'GET' && pathname === '/api/models') {
     const cfg = await readConfig();
+    const modelList = await getKnownModelsFromCli();
     res.writeHead(200);
     res.end(JSON.stringify({
       models:        cfg.agents?.defaults?.models       || {},
       authProfiles:  cfg.auth?.profiles                 || {},
       primaryModel:  cfg.agents?.defaults?.model?.primary || '',
       fallbacks:     cfg.agents?.defaults?.model?.fallbacks || [],
-      knownModels:   KNOWN_MODELS,
+      knownModels:   modelList.knownModels || [],
+      modelListError:modelList.error || '',
       authProviders: AUTH_PROVIDERS,
     }));
     return;
@@ -1627,6 +1660,10 @@ select option { background:var(--surface); }
 .dash-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
 .dash-card { padding:20px; }
 .dash-card h3 { font-size:14px; font-weight:600; margin-bottom:14px; color:var(--text); }
+.dash-notice { margin-top:18px; padding:16px 18px; }
+.dash-notice h3 { font-size:14px; margin-bottom:10px; }
+.dash-note-list { margin-left:16px; color:var(--muted); font-size:12px; line-height:1.7; }
+.dash-note-list li { margin-bottom:4px; }
 .dash-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
 .dash-row:last-child { border-bottom:none; }
 .dash-label { color:var(--muted); }
@@ -1824,6 +1861,15 @@ const MAIN_HTML_BODY = String.raw`
         <div class="dash-items" id="dashStorageItems"><div class="empty">Loading...</div></div>
       </div>
     </div>
+    <div class="card dash-notice">
+      <h3 data-i18n="dash.noticeTitle">📌 Telegram 使用说明（重要）</h3>
+      <ul class="dash-note-list">
+        <li data-i18n="dash.notice1">OCM 主要面向 Telegram 场景：通过群组绑定 Agent，让每个 Agent 拥有独立 Workspace / SOUL.md / MEMORY.md。</li>
+        <li data-i18n="dash.notice2">使用前请确保你已具备基本 OpenClaw 操作经验；OCM 主要负责可视化更新 openclaw.json，方便增删主 Agent 与 Sub-Agent，并支持多条 Agent 树。</li>
+        <li data-i18n="dash.notice3">BotFather 中请确认 Allow Groups = ON 且 Group Privacy = OFF，否则 Sub-Agent 可能无法入组或无法响应。</li>
+      </ul>
+      <div class="warn-box" style="margin-top:10px" data-i18n="dash.noticeWarn">⚠️ 强烈建议：每个 Agent 群组只保留你自己和该 Agent（或其 Sub-Agent）。不要邀请其他人，把每个组当作私聊空间。</div>
+    </div>
   </div>
 
   <!-- ══ Agents ════════════════════════════════════════════════ -->
@@ -1852,6 +1898,8 @@ const MAIN_HTML_BODY = String.raw`
   <div class="panel" id="panel-models">
     <div class="sec-hdr"><h2 data-i18n="models.title">模型管理</h2></div>
     <p class="hint-text" style="margin-bottom:14px" data-i18n="models.hint">模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。</p>
+    <p class="hint-text" style="margin-top:-8px;margin-bottom:12px" data-i18n="models.onlyCliHint">模型下拉仅显示 openclaw models list 返回的模型。</p>
+    <div id="modelListWarn" class="warn-box" style="display:none;margin-bottom:10px"></div>
     <div id="primaryModelWarn" class="warn-box" style="display:none;margin-bottom:10px"></div>
     <div class="card" style="margin-bottom:12px">
       <div class="card-row"><span style="font-size:13px;font-weight:600" data-i18n="models.primary">默认主模型</span><span class="badge main">primary</span></div>
@@ -2199,6 +2247,14 @@ const I18N = {
     'channels.title':'Channel 绑定','channels.add':'＋ 添加绑定','channels.hint':'管理 Agent 与频道/群组的绑定关系。绑定顺序决定优先级。',
     'models.title':'模型管理','models.primary':'默认主模型','models.fallback':'Fallback 链',
     'models.hint':'模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。',
+    'models.onlyCliHint':'模型下拉仅显示 openclaw models list 返回的模型。',
+    'models.modelListErr':'读取 openclaw models list 失败：',
+    'models.modelListEmpty':'未从 openclaw models list 解析到模型。请先运行 openclaw onboard 并确认模型可用。',
+    'dash.noticeTitle':'📌 Telegram 使用说明（重要）',
+    'dash.notice1':'OCM 主要面向 Telegram：通过群组绑定 Agent，让每个 Agent 拥有独立 Workspace / SOUL.md / MEMORY.md。',
+    'dash.notice2':'请确保你已有基本 OpenClaw 操作经验。OCM 主要负责可视化更新 openclaw.json，方便增删主 Agent 与 Sub-Agent，并支持多条 Agent 树。',
+    'dash.notice3':'BotFather 中请确认 Allow Groups = ON 且 Group Privacy = OFF，否则 Sub-Agent 可能无法入组或无法响应。',
+    'dash.noticeWarn':'⚠️ 强烈建议：每个 Agent 群组只保留你自己和该 Agent（或其 Sub-Agent）。不要邀请其他人，把每个组当作私聊空间。',
     'auth.title':'认证配置','auth.configured':'已配置认证',
     'auth.guide':'点击 Provider 查看认证步骤。认证需在终端完成，或使用下方 CLI 终端。',
     'auth.step1':'1. 获取 API Key','auth.step2':'2. 在终端运行以下命令','auth.step3':'3. 按提示粘贴 API Key 并回车',
@@ -2310,6 +2366,14 @@ const I18N = {
     'channels.title':'Channel Bindings','channels.add':'＋ Add Binding','channels.hint':'Manage Agent to channel/group bindings. Order determines priority.',
     'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
     'models.hint':'Models are registered via openclaw onboard. Manage primary model and fallback chain here.',
+    'models.onlyCliHint':'Model dropdowns only show IDs returned by openclaw models list.',
+    'models.modelListErr':'Failed to load openclaw models list: ',
+    'models.modelListEmpty':'No model IDs were parsed from openclaw models list. Run openclaw onboard first.',
+    'dash.noticeTitle':'📌 Telegram Usage Notes (Important)',
+    'dash.notice1':'OCM is primarily for Telegram workflows: bind agents to groups so each agent has isolated Workspace / SOUL.md / MEMORY.md.',
+    'dash.notice2':'Basic OpenClaw CLI experience is required. OCM focuses on visual openclaw.json updates for easier main-agent/sub-agent management and multiple agent trees.',
+    'dash.notice3':'In BotFather, keep Allow Groups = ON and Group Privacy = OFF; otherwise sub-agents may fail to join or respond.',
+    'dash.noticeWarn':'⚠️ Strong recommendation: each agent group should include only you and that agent (or its sub-agents). Treat each group like a private chat.',
     'auth.title':'Auth Config','auth.configured':'Configured Auth',
     'auth.guide':'Click a Provider for setup instructions. Auth is done in terminal or via the CLI panel below.',
     'auth.step1':'1. Get API Key','auth.step2':'2. Run the command below in terminal','auth.step3':'3. Paste your API Key when prompted',
@@ -2472,7 +2536,7 @@ const LANDING_TEXT = {
   },
 };
 // ── 全局状态 ────────────────────────────────────────────────
-let S = { agents:[], channels:[], models:{}, authProfiles:{}, knownModels:[], authProviders:[], primaryModel:'', fallbacks:[] };
+let S = { agents:[], channels:[], models:{}, authProfiles:{}, knownModels:[], modelListError:'', authProviders:[], primaryModel:'', fallbacks:[] };
 let wizCur = 1;
 let logTimer = null;
 let selectedAuthProv = null;
@@ -2610,6 +2674,7 @@ async function loadModels(){
     const r=await api('GET','/api/models');
     S.models=r.models||{}; S.authProfiles=r.authProfiles||{};
     S.knownModels=r.knownModels||[]; S.authProviders=r.authProviders||[];
+    S.modelListError=r.modelListError||'';
     S.primaryModel=r.primaryModel||''; S.fallbacks=r.fallbacks||[];
     renderModels(); renderAuth(); buildModelDropdowns();
   }catch(e){ toast('加载模型失败: '+e.message,'error'); }
@@ -2878,10 +2943,6 @@ function buildModelOpts(selected){
     opts+=\`<option value="\${m.id}"\${selected===m.id?' selected':''}>\${m.label}</option>\`;
   });
   if(lastGroup) opts+=\`</optgroup>\`;
-  Object.keys(S.models).forEach(id=>{
-    if(!S.knownModels.find(k=>k.id===id))
-      opts+=\`<option value="\${id}"\${selected===id?' selected':''}>\${id} (\${t('agents.custom')})</option>\`;
-  });
   return opts;
 }
 
@@ -2947,6 +3008,19 @@ async function deleteChannel(idx,label){
 
 // ── 渲染模型 ─────────────────────────────────────────────────
 function renderModels(){
+  const listWarn=document.getElementById('modelListWarn');
+  if(listWarn){
+    if(S.modelListError){
+      listWarn.style.display='';
+      listWarn.textContent=t('models.modelListErr')+S.modelListError;
+    }else if(!S.knownModels.length){
+      listWarn.style.display='';
+      listWarn.textContent=t('models.modelListEmpty');
+    }else{
+      listWarn.style.display='none';
+      listWarn.textContent='';
+    }
+  }
   // 检测 primary model 是否是 API Key（显示修复警告）
   const primWarn=document.getElementById('primaryModelWarn');
   if(primWarn){
@@ -2963,7 +3037,7 @@ function renderModels(){
     }
   }
   const pSel=document.getElementById('primaryModelSel');
-  pSel.innerHTML='';
+  pSel.innerHTML='<option value="">'+(lang==='en'?'(no models loaded)':'（未加载到模型）')+'</option>';
   S.knownModels.filter(m=>m.id!=='__default__').forEach(m=>{
     pSel.innerHTML+=\`<option value="\${m.id}"\${S.primaryModel===m.id?' selected':''}>\${m.label}</option>\`;
   });
@@ -3004,7 +3078,7 @@ async function savePrimaryModel(){
 // 修复被错误设置为 API Key 的主模型 → 重置为第一个已注册模型或留空
 async function fixBadPrimaryModel(){
   // 尝试从已注册模型中取第一个可用 ID
-  const firstModel = Object.keys(S.models||{}).find(k => isValidModelId(k));
+  const firstModel = (S.knownModels||[]).map(m=>m.id).find(k => isValidModelId(k));
   const resetTo = firstModel || '';
   if(!confirm(\`将主模型重置为"\${resetTo||'（清空，使用全局默认）'}"？\`)) return;
   try{
@@ -3158,7 +3232,7 @@ async function refreshAuthOnly(){
   try{
     const r=await api('GET','/api/models');
     S.authProfiles=r.authProfiles||{};
-    S.models=r.models||{}; S.knownModels=r.knownModels||[];
+    S.models=r.models||{}; S.knownModels=r.knownModels||[]; S.modelListError=r.modelListError||'';
     renderAuth(); buildModelDropdowns();
   }catch(e){ toast((lang==='en'?'Refresh failed: ':'刷新失败: ')+e.message,'error'); }
 }
