@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ================================================================
-// OpenClaw Manager v0.6.5
+// OpenClaw Manager v0.7.0
 // 跨平台本地管理工具  (Windows / macOS / Linux)
 //
 // 用法:
@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.6.6';
+const APP_VERSION = '0.7.0';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -456,7 +456,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents — create sub-agent (shares parent bot)
   if (method === 'POST' && pathname === '/api/agents') {
-    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId } = body;
+    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, telegramUserId } = body;
     if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
     }
@@ -495,6 +495,14 @@ async function handleApi(req, res, urlObj, body) {
     if (!cfg.channels.telegram)        cfg.channels.telegram = {};
     if (!cfg.channels.telegram.groups) cfg.channels.telegram.groups = {};
     cfg.channels.telegram.groups[gid] = { requireMention: false };
+    // Add telegramUserId to allowFrom whitelist if provided
+    if (telegramUserId && /^\d+$/.test(String(telegramUserId).trim())) {
+      const uid = parseInt(String(telegramUserId).trim());
+      if (!cfg.channels.telegram.allowFrom) cfg.channels.telegram.allowFrom = [];
+      if (!cfg.channels.telegram.allowFrom.includes(uid)) {
+        cfg.channels.telegram.allowFrom.push(uid);
+      }
+    }
     const bakPath = await writeConfig(cfg, 'create');
     await fsp.mkdir(wsPath, { recursive: true });
     await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
@@ -1247,6 +1255,25 @@ async function handleApi(req, res, urlObj, body) {
       const cpus = os.cpus();
       const cpuModel = cpus.length ? cpus[0].model.trim() : 'Unknown';
       const cpuCores = cpus.length;
+      const loadAvg = os.loadavg(); // [1min, 5min, 15min]
+
+      // CPU usage % (snapshot via /proc/stat or fallback to loadavg)
+      let cpuPercent = null;
+      try {
+        // Quick estimate: sum idle vs total across all cores from a snapshot
+        const c1 = os.cpus();
+        await new Promise(r => setTimeout(r, 200));
+        const c2 = os.cpus();
+        let idleDiff = 0, totalDiff = 0;
+        for (let i = 0; i < c2.length; i++) {
+          const t1 = c1[i].times, t2 = c2[i].times;
+          const total1 = t1.user + t1.nice + t1.sys + t1.idle + t1.irq;
+          const total2 = t2.user + t2.nice + t2.sys + t2.idle + t2.irq;
+          idleDiff += (t2.idle - t1.idle);
+          totalDiff += (total2 - total1);
+        }
+        cpuPercent = totalDiff > 0 ? Math.round((1 - idleDiff / totalDiff) * 100) : 0;
+      } catch (_) {}
 
       // Disk usage (best-effort, works on macOS/Linux)
       let diskTotal = 0, diskUsed = 0, diskFree = 0;
@@ -1295,9 +1322,21 @@ async function handleApi(req, res, urlObj, body) {
         gatewayPing = code > 0 && code < 500;
       } catch (_) {}
 
-      // Agent count & last activity
-      let agentCount = 0;
+      // Agent count (main vs sub) & last activity
+      let agentCount = 0, mainAgentCount = 0, subAgentCount = 0;
       let lastActivity = null;
+      try {
+        // Count main vs sub from config
+        if (cfg && cfg.agents && cfg.agents.list && cfg.bindings) {
+          const bindings = cfg.bindings || [];
+          const accounts = cfg.channels?.telegram?.accounts || {};
+          cfg.agents.list.forEach(a => {
+            const isMain = a.id === 'main';
+            const botBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId && !b.match?.peer);
+            if (isMain || botBinding) mainAgentCount++; else subAgentCount++;
+          });
+        }
+      } catch (_) {}
       try {
         const sessionsBase = path.join(OPENCLAW_DIR, 'agents');
         const agentDirs = await fsp.readdir(sessionsBase);
@@ -1322,9 +1361,9 @@ async function handleApi(req, res, urlObj, body) {
       res.writeHead(200);
       res.end(JSON.stringify({
         ok: true,
-        system: { hostname, platform, nodeVer, cpuModel, cpuCores, uptime: sysUptime, totalMem, freeMem, diskTotal, diskUsed, diskFree, dirSize },
+        system: { hostname, platform, nodeVer, cpuModel, cpuCores, uptime: sysUptime, totalMem, freeMem, diskTotal, diskUsed, diskFree, dirSize, cpuPercent, loadAvg },
         gateway: { status: gatewayRunning, pid: gatewayPid, port: gatewayPort, ping: gatewayPing },
-        agents: { count: agentCount, lastActivity: lastActivity ? lastActivity.toISOString() : null },
+        agents: { count: agentCount, mainCount: mainAgentCount, subCount: subAgentCount, lastActivity: lastActivity ? lastActivity.toISOString() : null },
         ocmVersion: APP_VERSION,
         serverTime: now,
       }));
@@ -1383,12 +1422,12 @@ async function handleApi(req, res, urlObj, body) {
   }
 
   res.writeHead(404);
-  res.end(JSON.stringify({ error: '未知 API 路径: ' + pathname }));
+  res.end(JSON.stringify({ error: 'Unknown API path: ' + pathname }));
 }
 
 // ── 安装向导 HTML ──────────────────────────────────────────────
 const SETUP_HTML = `<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><title>OpenClaw Manager - 初始设置</title>
+<html lang="en"><head><meta charset="UTF-8"><title>OpenClaw Manager - Setup</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#0f1117;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;}
@@ -1406,23 +1445,23 @@ const SETUP_HTML = `<!DOCTYPE html>
 </style></head>
 <body><div class="box">
   <h1>🦀 OpenClaw Manager</h1>
-  <p>首次运行，请指定你的 OpenClaw 数据目录（包含 openclaw.json 的文件夹）。</p>
-  <label>OpenClaw 目录路径</label>
-  <input id="dir" type="text" placeholder="例如: /Users/yourname/.openclaw 或 ~/.openclaw">
-  <div class="hint">常见位置：<br>macOS / Linux：<code>~/.openclaw</code><br>Windows：<code>C:\\Users\\yourname\\.openclaw</code></div>
+  <p>First time setup — please specify your OpenClaw data directory (the folder containing openclaw.json).</p>
+  <label>OpenClaw Directory Path</label>
+  <input id="dir" type="text" placeholder="e.g. /Users/yourname/.openclaw or ~/.openclaw">
+  <div class="hint">Common locations:<br>macOS / Linux: <code>~/.openclaw</code><br>Windows: <code>C:\\Users\\yourname\\.openclaw</code></div>
   <div class="err" id="err"></div>
-  <button onclick="save()">确认并进入</button>
+  <button onclick="save()">Confirm &amp; Enter</button>
 </div>
 <script>
 async function save(){
   const dir=document.getElementById('dir').value.trim();
   const err=document.getElementById('err');
-  if(!dir){err.textContent='请填写目录路径';err.style.display='block';return;}
+  if(!dir){err.textContent='Please enter a directory path';err.style.display='block';return;}
   try{
     const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dir})});
     const d=await r.json();
-    if(d.ok){location.reload();}else{err.textContent=d.error||'路径无效';err.style.display='block';}
-  }catch(e){err.textContent='请求失败：'+e.message;err.style.display='block';}
+    if(d.ok){location.reload();}else{err.textContent=d.error||'Invalid path';err.style.display='block';}
+  }catch(e){err.textContent='Request failed: '+e.message;err.style.display='block';}
 }
 document.getElementById('dir').addEventListener('keydown',e=>{if(e.key==='Enter')save();});
 </script></body></html>`;
@@ -1558,7 +1597,21 @@ select option { background:var(--surface); }
 .pw-toggle { position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0; }
 
 /* ── Dashboard ── */
-.dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.dash-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.dash-header h2 { font-size:18px; font-weight:600; color:var(--text); margin:0; }
+.dash-auto-refresh { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+.dash-auto-refresh label { cursor:pointer; display:flex; align-items:center; gap:6px; }
+.dash-toggle { position:relative; width:36px; height:20px; }
+.dash-toggle input { opacity:0; width:0; height:0; }
+.dash-toggle .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--border); border-radius:10px; transition:.3s; }
+.dash-toggle .slider:before { position:absolute; content:""; height:14px; width:14px; left:3px; bottom:3px; background:#999; border-radius:50%; transition:.3s; }
+.dash-toggle input:checked + .slider { background:var(--accent); }
+.dash-toggle input:checked + .slider:before { transform:translateX(16px); background:#fff; }
+.dash-gauges { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; margin-bottom:24px; }
+.dash-gauge-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:20px 24px; display:flex; flex-direction:column; align-items:center; min-width:140px; }
+.dash-gauge-svg { width:110px; height:110px; }
+.dash-gauge-label { font-size:12px; color:var(--muted); margin-top:8px; font-weight:500; }
+.dash-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
 .dash-card { padding:20px; }
 .dash-card h3 { font-size:14px; font-weight:600; margin-bottom:14px; color:var(--text); }
 .dash-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
@@ -1569,10 +1622,6 @@ select option { background:var(--surface); }
 .dash-indicator.running { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.5); }
 .dash-indicator.stopped { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.5); }
 .dash-indicator.unknown { background:#f59e0b; }
-.dash-bar-wrap { width:100%; height:6px; background:var(--border); border-radius:3px; margin-top:4px; }
-.dash-bar { height:100%; border-radius:3px; background:var(--accent); transition:width .3s; }
-.dash-bar.warn { background:#f59e0b; }
-.dash-bar.danger { background:#ef4444; }
 
 /* ── Modal ── */
 .backdrop { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; display:none; align-items:center; justify-content:center; }
@@ -1736,9 +1785,17 @@ const MAIN_HTML_BODY = String.raw`
 
   <!-- ══ Dashboard ════════════════════════════════════════════ -->
   <div class="panel active" id="panel-dashboard">
-    <div class="dash-grid" id="dashGrid">
+    <div class="dash-header">
+      <h2>Dashboard</h2>
+      <div class="dash-auto-refresh">
+        <label class="dash-toggle"><input type="checkbox" id="dashAutoRefresh" onchange="toggleDashRefresh(this.checked)"><span class="slider"></span></label>
+        <span>Auto-refresh</span>
+      </div>
+    </div>
+    <div class="dash-gauges" id="dashGauges"><div class="empty">Loading...</div></div>
+    <div class="dash-sections">
       <div class="card dash-card" id="dashSystem">
-        <h3>🖥️ System</h3>
+        <h3>🖥️ System Info</h3>
         <div class="dash-items" id="dashSysItems"><div class="empty">Loading...</div></div>
       </div>
       <div class="card dash-card" id="dashGateway">
@@ -2167,9 +2224,13 @@ const I18N = {
     'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
     'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
     'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
-    'guide.sub.s1':'Add the Bot to your target Telegram group',
-    'guide.sub.s2':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
-    'guide.sub.s3':'Fill in the Group ID and Agent config below',
+    'guide.sub.s1':'在 BotFather 发送 <code>/newbot</code> 创建新 Bot，获取 Bot Token',
+    'guide.sub.s2':'在 BotFather 发送 <code>/mybots</code> → 选择 Bot → <b>Bot Settings</b> → <b>Group Privacy</b> → <b>Turn off</b>',
+    'guide.sub.s3':'在 Telegram 创建新群组，将 Bot 加入群组（<b>不要加其他人</b>）',
+    'guide.sub.s4':'在群内发一条消息，从 gateway 日志中找到 <code>peer.id</code>（负数）',
+    'guide.sub.s5':'填写下方表单创建 Sub-Agent',
+    'guide.sub.warn':'⚠️ 安全提示：请勿将其他人加入此群组，只有你和 Bot 应在群内。否则其他人也能与 Bot 对话并产生 API 费用。',
+    'wiz.telegramId':'你的 Telegram User ID','wiz.telegramIdHint':'💡 可通过 @userinfobot 获取，填写后自动配置 allowFrom 白名单','wiz.telegramIdPh':'例如: 123456789',
     'agents.empty':'暂无 Agent','agents.main':'主 Agent','agents.bound':'已绑群',
     'agents.saveModel':'保存模型','agents.viewFiles':'查看文件',
     'agents.defaultModel':'使用全局默认','agents.custom':'自定义','agents.noModel':'默认',
@@ -2274,9 +2335,13 @@ const I18N = {
     'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
     'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
     'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
-    'guide.sub.s1':'Add the Bot to your target Telegram group',
-    'guide.sub.s2':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
-    'guide.sub.s3':'Fill in the Group ID and Agent config below',
+    'guide.sub.s1':'Send <code>/newbot</code> to BotFather to create a new Bot and get the Bot Token',
+    'guide.sub.s2':'Send <code>/mybots</code> to BotFather → select your Bot → <b>Bot Settings</b> → <b>Group Privacy</b> → <b>Turn off</b>',
+    'guide.sub.s3':'Create a new Telegram group, add the Bot to the group (<b>do NOT add anyone else</b>)',
+    'guide.sub.s4':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
+    'guide.sub.s5':'Fill in the form below to create the Sub-Agent',
+    'guide.sub.warn':'⚠️ Security: Do NOT add other people to this group. Only you and the Bot should be in the group. Otherwise others can chat with the Bot and incur API costs.',
+    'wiz.telegramId':'Your Telegram User ID','wiz.telegramIdHint':'💡 Get it from @userinfobot — auto-configures allowFrom whitelist','wiz.telegramIdPh':'e.g. 123456789',
     'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
     'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
     'agents.defaultModel':'Use Global Default','agents.custom':'custom','agents.noModel':'Default',
@@ -2414,24 +2479,56 @@ async function loadAll(){ await Promise.all([loadAgents(), loadModels(), loadCha
 
 // ── Dashboard ─────────────────────────────────────────────────
 let dashLoaded=false;
+let dashRefreshTimer=null;
 function fmtBytes(b){if(!b||b<=0)return '—';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++;}return b.toFixed(i>0?1:0)+' '+u[i];}
 function fmtUptime(s){const d=Math.floor(s/86400);const h=Math.floor((s%86400)/3600);const m=Math.floor((s%3600)/60);if(d>0)return d+'d '+h+'h '+m+'m';if(h>0)return h+'h '+m+'m';return m+'m';}
 function dashRow(label,val){return '<div class="dash-row"><span class="dash-label">'+esc(label)+'</span><span class="dash-val">'+val+'</span></div>';}
-function dashBar(pct){const cls=pct>90?'danger':pct>70?'warn':'';return '<div class="dash-bar-wrap"><div class="dash-bar '+cls+'" style="width:'+Math.min(pct,100)+'%"></div></div>';}
+function gaugeColor(pct){if(pct>90)return '#ef4444';if(pct>70)return '#f59e0b';return '#22c55e';}
+function buildGaugeSVG(pct,label,sub,color){
+  const r=46,cx=55,cy=55,sw=8;
+  const circ=2*Math.PI*r;
+  const gap=circ*0.25;
+  const arc=circ-gap;
+  const filled=arc*(Math.min(pct,100)/100);
+  const rot=135;
+  if(!color)color=gaugeColor(pct);
+  return '<div class="dash-gauge-card">'+
+    '<svg class="dash-gauge-svg" viewBox="0 0 110 110">'+
+    '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="'+sw+'" stroke-dasharray="'+arc+' '+gap+'" stroke-linecap="round" transform="rotate('+rot+' '+cx+' '+cy+')"/>'+
+    '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="'+sw+'" stroke-dasharray="'+filled+' '+(circ-filled)+'" stroke-linecap="round" transform="rotate('+rot+' '+cx+' '+cy+')" style="transition:stroke-dasharray .6s ease"/>'+
+    '<text x="'+cx+'" y="'+cy+'" text-anchor="middle" dy="-2" fill="'+color+'" font-size="22" font-weight="700" font-family="-apple-system,sans-serif">'+Math.round(pct)+'%</text>'+
+    '<text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="-apple-system,sans-serif">'+esc(sub)+'</text>'+
+    '</svg>'+
+    '<div class="dash-gauge-label">'+esc(label)+'</div></div>';
+}
+function toggleDashRefresh(on){
+  if(dashRefreshTimer){clearInterval(dashRefreshTimer);dashRefreshTimer=null;}
+  if(on){dashRefreshTimer=setInterval(loadDashboard,10000);}
+}
 async function loadDashboard(){
   try{
     const r=await api('GET','/api/dashboard');
     if(!r.ok)return;
     const s=r.system, g=r.gateway, a=r.agents;
-    // System card
     const memPct=s.totalMem?((s.totalMem-s.freeMem)/s.totalMem*100):0;
+    const diskPct=s.diskTotal?(s.diskUsed/s.diskTotal*100):0;
+    const cpuPct=(s.cpuPercent!==null&&s.cpuPercent!==undefined)?s.cpuPercent:0;
+    // Gauges
+    const memUsed=fmtBytes(s.totalMem-s.freeMem)+' / '+fmtBytes(s.totalMem);
+    const diskUsed=fmtBytes(s.diskUsed)+' / '+fmtBytes(s.diskTotal);
+    let gaugeHtml=buildGaugeSVG(cpuPct,'CPU',s.cpuCores+' cores');
+    gaugeHtml+=buildGaugeSVG(memPct,'RAM',memUsed);
+    gaugeHtml+=buildGaugeSVG(diskPct,'DISK',diskUsed);
+    document.getElementById('dashGauges').innerHTML=gaugeHtml;
+    // System info card
+    const loadStr=s.loadAvg?s.loadAvg.map(function(v){return v.toFixed(2);}).join(' / '):'—';
     let sysHtml=dashRow('Hostname',esc(s.hostname));
     sysHtml+=dashRow('OS',esc(s.platform));
     sysHtml+=dashRow('Node.js',esc(s.nodeVer));
-    sysHtml+=dashRow('CPU',esc(s.cpuModel)+' ('+s.cpuCores+' cores)');
+    sysHtml+=dashRow('CPU',esc(s.cpuModel));
+    sysHtml+=dashRow('Cores',String(s.cpuCores));
     sysHtml+=dashRow('Uptime',fmtUptime(s.uptime));
-    sysHtml+=dashRow('Memory',fmtBytes(s.totalMem-s.freeMem)+' / '+fmtBytes(s.totalMem)+' ('+memPct.toFixed(0)+'%)');
-    sysHtml+=dashBar(memPct);
+    sysHtml+=dashRow('Load Avg (1/5/15m)',loadStr);
     document.getElementById('dashSysItems').innerHTML=sysHtml;
     // Gateway card
     const statusIcon='<span class="dash-indicator '+esc(g.status)+'"></span>';
@@ -2442,7 +2539,9 @@ async function loadDashboard(){
     gwHtml+=dashRow('HTTP Ping',g.ping?'<span style="color:#22c55e">✓ Reachable</span>':'<span style="color:#ef4444">✗ Unreachable</span>');
     document.getElementById('dashGwItems').innerHTML=gwHtml;
     // Agents card
-    let agHtml=dashRow('Total Agents',String(a.count));
+    let agHtml=dashRow('Main Agents',String(a.mainCount||0));
+    agHtml+=dashRow('Sub-Agents',String(a.subCount||0));
+    agHtml+=dashRow('Total',String(a.count));
     if(a.lastActivity){
       const d=new Date(a.lastActivity);
       agHtml+=dashRow('Last Activity',d.toLocaleString('en-AU',{timeZone:'Australia/Brisbane',hour12:false}));
@@ -2453,13 +2552,8 @@ async function loadDashboard(){
     agHtml+=dashRow('Server Time',esc(r.serverTime));
     document.getElementById('dashAgentItems').innerHTML=agHtml;
     // Storage card
-    let stHtml=dashRow('OpenClaw Dir Size',fmtBytes(s.dirSize));
-    if(s.diskTotal>0){
-      const diskPct=s.diskUsed/s.diskTotal*100;
-      stHtml+=dashRow('Disk',fmtBytes(s.diskUsed)+' / '+fmtBytes(s.diskTotal)+' ('+diskPct.toFixed(0)+'%)');
-      stHtml+=dashBar(diskPct);
-      stHtml+=dashRow('Disk Free',fmtBytes(s.diskFree));
-    }
+    let stHtml=dashRow('OpenClaw Dir',fmtBytes(s.dirSize));
+    stHtml+=dashRow('Disk Free',fmtBytes(s.diskFree));
     document.getElementById('dashStorageItems').innerHTML=stHtml;
     dashLoaded=true;
   }catch(e){console.error('Dashboard load error:',e);}
@@ -2581,12 +2675,19 @@ function buildAddSubForm() {
     '<li>' + t('guide.sub.s1') + '</li>' +
     '<li>' + t('guide.sub.s2') + '</li>' +
     '<li>' + t('guide.sub.s3') + '</li>' +
-    '</ol></details>' +
+    '<li>' + t('guide.sub.s4') + '</li>' +
+    '<li>' + t('guide.sub.s5') + '</li>' +
+    '</ol>' +
+    '<div style="margin-top:10px;padding:10px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;font-size:13px;line-height:1.5">' + t('guide.sub.warn') + '</div>' +
+    '</details>' +
     '<div class="form-group"><label>Parent Agent</label>' +
     '<select id="fs-parent">' + parentOpts + '</select></div>' +
     '<div class="form-group"><label>' + t('wiz.groupId') + '</label>' +
     '<input id="fs-gid" placeholder="-100XXXXXXXXXX">' +
     '<span class="hint-text">' + t('wiz.groupHint') + '</span></div>' +
+    '<div class="form-group"><label>' + t('wiz.telegramId') + '</label>' +
+    '<input id="fs-tgid" placeholder="' + t('wiz.telegramIdPh') + '">' +
+    '<span class="hint-text">' + t('wiz.telegramIdHint') + '</span></div>' +
     '<div class="form-row">' +
     '<div class="form-group"><label>' + t('wiz.agentId') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.agentIdHint') + '</span></label>' +
     '<input id="fs-aid" placeholder="' + t('wiz.agentIdPh') + '"></div>' +
@@ -2636,6 +2737,7 @@ async function submitAddAgent() {
 async function submitAddSub() {
   const parentAgentId = document.getElementById('fs-parent').value.trim();
   const groupId = document.getElementById('fs-gid').value.trim();
+  const telegramUserId = (document.getElementById('fs-tgid')?.value||'').trim();
   const agentId = document.getElementById('fs-aid').value.trim();
   const displayName = document.getElementById('fs-name').value.trim();
   const model = document.getElementById('fs-model').value;
@@ -2646,8 +2748,9 @@ async function submitAddSub() {
   if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
   if (!agentId) { toast(t('wiz.errAgentId'), 'err'); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast(t('wiz.errIdFormat'), 'err'); return; }
+  if (telegramUserId && !/^\\d+$/.test(telegramUserId)) { toast('Telegram User ID must be a number', 'err'); return; }
   try {
-    const r = await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory });
+    const r = await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory, telegramUserId });
     if (r.error) { toast(r.error, 'err'); return; }
     toast(t('wiz.created'), 'ok');
     document.getElementById('addFormArea').innerHTML = '';

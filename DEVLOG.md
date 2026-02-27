@@ -1,7 +1,40 @@
 # OpenClaw Manager — 开发日志
 
 > 最后更新：2026-02-27
-> 当前版本：v0.6.6
+> 当前版本：v0.7.0
+
+---
+
+## v0.7.0 更新日志（2026-02-27）
+
+### New Features
+
+**Dashboard Redesign — Circular Gauge System Health**
+- CPU%, RAM%, DISK% displayed as SVG circular gauges with colour-coded arcs (green < 70%, amber < 90%, red ≥ 90%)
+- System info card: hostname, OS, Node.js, CPU model, cores, uptime, load average (1/5/15 min)
+- Agent overview: separate main agent count and sub-agent count (plus total)
+- Auto-refresh toggle: when enabled, dashboard polls `/api/dashboard` every 10 seconds
+- Backend now measures CPU usage via `os.cpus()` delta sampling (200ms interval) and returns `loadAvg` from `os.loadavg()`
+
+**Sub-Agent Creation Flow — Step-by-Step Guide Rewrite**
+- Expanded from 3 steps to 5 detailed steps covering the full BotFather → Telegram Group → OCM workflow
+- Step 1: Create new Bot via `/newbot` in BotFather
+- Step 2: Disable Group Privacy via `/mybots` → Bot Settings → Group Privacy → Turn off
+- Step 3: Create Telegram group, add Bot (with security warning)
+- Step 4: Get Group ID from gateway logs
+- Step 5: Fill in the form
+- New "Your Telegram User ID" input field — auto-writes to `channels.telegram.allowFrom` whitelist on creation
+- Security warning banner: "Do NOT add other people to this group" with explanation about API cost risks
+
+**Setup Page — English Localization**
+- All Chinese text in the initial directory selection page translated to English
+- Includes: title, description, labels, placeholders, error messages, button text
+
+### Technical Notes
+
+- **CPU usage measurement:** Two `os.cpus()` snapshots 200ms apart, calculating idle-to-total ratio across all cores
+- **Gauge rendering:** Pure SVG arcs with `stroke-dasharray` animation, no external libraries. 270° arc (gap at bottom), colour transitions via `gaugeColor()` function
+- **allowFrom auto-config:** `POST /api/agents` now accepts optional `telegramUserId` field (numeric string), appends to `channels.telegram.allowFrom[]` if not already present
 
 ---
 
