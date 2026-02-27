@@ -30,11 +30,19 @@
 - All Chinese text in the initial directory selection page translated to English
 - Includes: title, description, labels, placeholders, error messages, button text
 
+### Bug Fixes
+
+**Agent tree: sub-agents not grouped under main (old config format)**
+- **Symptom**: On machines with openclaw.json created before OCM v0.6 multi-bot support, all sub-agents displayed as independent cards instead of nested under main
+- **Root cause**: Old-format bindings lack `accountId` field in sub-agent entries. The tree builder relied on `parentAccountId` to match sub-agents to roots, but old bindings only had `channel` + `peer` — no `accountId`. So `parentAccountId` was null and no parent match was found
+- **Fix**: Fallback inference — if a sub-agent has a peer binding but no `accountId`, automatically infer `parentAccountId` from main's binding (`accountId`) or fall back to `'default'`
+
 ### Technical Notes
 
 - **CPU usage measurement:** Two `os.cpus()` snapshots 200ms apart, calculating idle-to-total ratio across all cores
 - **Gauge rendering:** Pure SVG arcs with `stroke-dasharray` animation, no external libraries. 270° arc (gap at bottom), colour transitions via `gaugeColor()` function
 - **allowFrom auto-config:** `POST /api/agents` now accepts optional `telegramUserId` field (numeric string), appends to `channels.telegram.allowFrom[]` if not already present
+- **Old-config compatibility:** Sub-agent bindings without `accountId` are now auto-assigned to the main agent's bot, maintaining backward compatibility with configs created before multi-bot support
 
 ---
 

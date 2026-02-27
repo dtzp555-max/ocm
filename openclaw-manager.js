@@ -365,7 +365,20 @@ async function handleApi(req, res, urlObj, body) {
       const accountId = botBinding?.match?.accountId || (isMain ? mainInferredAccountId : null);
       // For sub-agents (with peer match), find which accountId they belong to
       const parentBinding = bindings.find(b => b.agentId === a.id && b.match?.accountId);
-      const parentAccountId = parentBinding?.match?.accountId || null;
+      // Fallback: if sub-agent has peer binding but no accountId, AND there's only one bot (old single-bot config),
+      // infer parentAccountId from main. If multiple bots exist, leave as orphan (can't guess which bot it belongs to).
+      let parentAccountId = parentBinding?.match?.accountId || null;
+      if (!parentAccountId && !hasOwnBot) {
+        const hasPeerBinding = bindings.find(b => b.agentId === a.id && b.match?.peer);
+        if (hasPeerBinding) {
+          const rootBindings = bindings.filter(b => b.match?.accountId && !b.match?.peer);
+          const rootCount = rootBindings.length + (list.some(x => x.id === 'main') && !rootBindings.some(b => b.agentId === 'main') ? 1 : 0);
+          if (rootCount <= 1) {
+            const mainBinding = rootBindings.find(b => b.agentId === 'main') || rootBindings[0];
+            parentAccountId = mainBinding?.match?.accountId || mainInferredAccountId || 'default';
+          }
+        }
+      }
       // Workspace: explicit per-agent, or defaults.workspace for main
       const workspace = a.workspace || (isMain ? defaultWorkspace : null);
       return { ...a, workspace, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
