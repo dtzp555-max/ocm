@@ -37,6 +37,22 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Bilingual UI** — English and Chinese interface with one-click language switching.
 
+## Telegram Workflow & Safety
+
+OCM is designed primarily for **Telegram-based OpenClaw workflows**:
+
+- Bind Telegram groups to one or more main agents, then create sub-agents under each tree
+- Keep each agent's context isolated via independent `workspace`, `SOUL.md`, and `MEMORY.md`
+- OCM mainly helps you **safely update `openclaw.json`** via UI instead of manual editing
+- Recommended for users who already have basic OpenClaw CLI experience (`onboard`, auth, gateway logs)
+
+Critical Telegram settings:
+
+- In BotFather, keep **Allow Groups = ON**
+- In BotFather, set **Group Privacy = OFF**
+- For each agent group, keep it private: **only you + that agent/sub-agents**
+- Do **not** invite other people to these groups (cost and security risk)
+
 ## Requirements
 
 - Node.js 18+ ([download](https://nodejs.org/))
@@ -130,6 +146,22 @@ start.bat            # Windows
 - **内置终端** — 实时流式输出，预设命令，收藏夹，Tab 补全
 - **运维面板** — 重启网关、查看日志、健康检查、本地/NAS 备份、Cron 任务管理
 - **双语界面** — 中英文一键切换
+
+### Telegram 场景与安全提示
+
+OCM 主要面向 **Telegram 场景**：
+
+- 通过群组绑定主 Agent，并在每条树下管理多个 Sub-Agent
+- 让每个 Agent 拥有独立 `workspace`、`SOUL.md`、`MEMORY.md`
+- 通过可视化方式更新 `openclaw.json`，减少手动改配置风险
+- 建议使用者已具备基础 OpenClaw CLI 操作经验（如 `onboard`、认证、查看网关日志）
+
+关键安全设置（务必确认）：
+
+- BotFather 里 **Allow Groups = ON**
+- BotFather 里 **Group Privacy = OFF**
+- 每个 Agent 群组只保留“你自己 + 对应 Agent/Sub-Agent”
+- 不要邀请其他人进组（会带来安全和 API 费用风险）
 
 ### 配置
 

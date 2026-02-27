@@ -1,6 +1,6 @@
 {
   "name": "openclaw-manager",
-  "version": "0.5.0",
+  "version": "0.7.1",
   "description": "A local web UI for managing OpenClaw AI agents — no npm install required",
   "main": "openclaw-manager.js",
   "scripts": {
