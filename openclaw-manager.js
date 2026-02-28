@@ -1916,6 +1916,10 @@ const MAIN_HTML_BODY = String.raw`
       <button class="btn-primary" onclick="showAddForm('sub')" data-i18n="agents.addSub">＋ Add Sub-Agent</button>
     </div>
     <div id="addFormArea"></div>
+    <p class="hint-text" style="margin:10px 0 14px" data-i18n="agents.hint">
+      <b>Add Agent</b>: create a top-level agent (a long-lived role). Use this for a new domain like ops/travel/finance, or when you want fully isolated workflows.
+      <br><b>Add Sub-Agent</b>: create a child agent under a parent. Sub-agents use the parent agent’s Telegram bot, but each sub-agent has its own workspace, SOUL.md (persona), and MEMORY.md (memory) — preventing context mixing, improving focus, and saving tokens.
+    </p>
     <div class="agents-tree-wrap">
       <div id="agentTree"><div class="empty" data-i18n="agents.empty">No Agents</div></div>
     </div>
@@ -2317,7 +2321,7 @@ const I18N = {
     'actions.setupEmpty':'请填写路径','actions.setupSwitching':'目录已切换，正在刷新...','actions.setupInvalid':'路径无效','actions.setupReqFail':'请求失败: ',
     'common.loading':'加载中...','common.close':'关闭',
     'btn.save':'保存','btn.delete':'删除','btn.cancel':'取消','btn.add':'添加','btn.remove':'移除',
-    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent',
+    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent','agents.hint':'Add Agent: create a top-level agent (a long-lived role) for a new domain. Add Sub-Agent: create a child under a parent; sub-agents use the parent Telegram bot but have their own workspace + SOUL.md + MEMORY.md, preventing context mixing, improving focus, and saving tokens.',
     'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
     'agents.botToken':'Bot Token','agents.botName':'Bot Name','agents.botNamePh':'My Bot',
     'agents.addAgentSubmit':'Create Agent','agents.addSubSubmit':'Create Sub-Agent',
@@ -2438,7 +2442,7 @@ const I18N = {
     'actions.setupEmpty':'Please enter a path','actions.setupSwitching':'Directory switched, refreshing...','actions.setupInvalid':'Invalid path','actions.setupReqFail':'Request failed: ',
     'common.loading':'Loading...','common.close':'Close',
     'btn.save':'Save','btn.delete':'Delete','btn.cancel':'Cancel','btn.add':'Add','btn.remove':'Remove',
-    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent',
+    'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent','agents.hint':'Add Agent: create a top-level agent (a long-lived role) for a new domain. Add Sub-Agent: create a child under a parent; sub-agents use the parent Telegram bot but have their own workspace + SOUL.md + MEMORY.md, preventing context mixing, improving focus, and saving tokens.',
     'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
     'agents.botToken':'Bot Token','agents.botName':'Bot Name','agents.botNamePh':'My Bot',
     'agents.addAgentSubmit':'Create Agent','agents.addSubSubmit':'Create Sub-Agent',
