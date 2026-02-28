@@ -77,7 +77,7 @@ bash start.sh
 
 截图示例：
 
-![](redacted-screenshots/dashboard.jpg)
+![](annotated-screenshots/dashboard.jpg)
 
 ---
 
@@ -105,7 +105,7 @@ bash start.sh
 
 进入 **Agents** 页面：
 
-![](redacted-screenshots/agents.jpg)
+![](annotated-screenshots/agents.jpg)
 
 点击 `+ Add Agent`，按表单填写：
 - Agent id / name
@@ -159,7 +159,7 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 进入 **Channels**：
 
-![](redacted-screenshots/channels.jpg)
+![](annotated-screenshots/channels.jpg)
 
 这里能一眼看到：
 - 哪个 agent 绑定了哪个 Telegram peer（群）
@@ -173,7 +173,7 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 进入 **模型**：
 
-![](redacted-screenshots/models.jpg)
+![](annotated-screenshots/models.jpg)
 
 关键点：
 - 主模型（primary）和 fallback 链
@@ -185,7 +185,7 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 进入 **认证**：
 
-![](redacted-screenshots/auth.jpg)
+![](annotated-screenshots/auth.jpg)
 
 这里主要用来：
 - 看当前有哪些 provider profile
@@ -197,7 +197,7 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 进入 **Stats**：
 
-![](redacted-screenshots/stats.jpg)
+![](annotated-screenshots/stats.jpg)
 
 你可以按：
 - 按模型聚合
@@ -222,13 +222,13 @@ OCM 内置一个 CLI 面板，用来直接运行 OpenClaw 命令（例如：`ope
 
 截图示例：
 
-![](redacted-screenshots/cli.jpg)
+![](annotated-screenshots/cli.jpg)
 
 ## 9) Cron（定时任务）
 
 进入 **Cron**：
 
-![](redacted-screenshots/cron.jpg)
+![](annotated-screenshots/cron.jpg)
 
 用途：
 - 查看有哪些健康检查/更新/备份任务
@@ -264,4 +264,4 @@ OCM 内置一个 CLI 面板，用来直接运行 OpenClaw 命令（例如：`ope
 
 ## 附：截图说明
 
-本文截图来自 `docs/redacted-screenshots/`，已做脱敏（路径用户名、Telegram 绑定 ID 等均已模糊处理）。
+本文截图来自 `docs/annotated-screenshots/`，已做脱敏（路径用户名、Telegram 绑定 ID 等均已模糊处理）。

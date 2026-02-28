@@ -88,7 +88,7 @@ The Dashboard is your “sanity check”:
 
 Screenshot:
 
-![](redacted-screenshots/dashboard.jpg)
+![](annotated-screenshots/dashboard.jpg)
 
 ---
 
@@ -119,7 +119,7 @@ If group privacy is ON, the bot can’t see normal group messages. The symptom o
 
 Go to **Agents**:
 
-![](redacted-screenshots/agents.jpg)
+![](annotated-screenshots/agents.jpg)
 
 Click `+ Add Agent` and fill:
 
@@ -176,7 +176,7 @@ If you use `channels.telegram.allowFrom`, OCM can take “Your Telegram User ID�
 
 Go to **Channels**:
 
-![](redacted-screenshots/channels.jpg)
+![](annotated-screenshots/channels.jpg)
 
 Here you can quickly validate:
 - which agent is bound to which Telegram peer
@@ -188,7 +188,7 @@ Here you can quickly validate:
 
 Go to **Models**:
 
-![](redacted-screenshots/models.jpg)
+![](annotated-screenshots/models.jpg)
 
 Key idea:
 - OCM uses the real CLI model list (`openclaw models list`) for dropdowns.
@@ -200,7 +200,7 @@ Key idea:
 
 Go to **Auth**:
 
-![](redacted-screenshots/auth.jpg)
+![](annotated-screenshots/auth.jpg)
 
 Use this page to:
 - see which provider profiles exist
@@ -212,7 +212,7 @@ Use this page to:
 
 Go to **Stats**:
 
-![](redacted-screenshots/stats.jpg)
+![](annotated-screenshots/stats.jpg)
 
 You can break down usage by:
 - model
@@ -227,7 +227,7 @@ OCM parses usage from OpenClaw session JSONL files.
 
 Go to **Cron**:
 
-![](redacted-screenshots/cron.jpg)
+![](annotated-screenshots/cron.jpg)
 
 You can:
 - see scheduled tasks (backup / update / health)
@@ -250,7 +250,7 @@ Highlights:
 
 Screenshot:
 
-![](redacted-screenshots/cli.jpg)
+![](annotated-screenshots/cli.jpg)
 
 ## 11) Fast troubleshooting
 
@@ -272,4 +272,4 @@ Check (in order):
 ## Notes about screenshots
 
 All screenshots in this guide are **redacted** (no personal paths, no Telegram IDs).
-They live under `docs/redacted-screenshots/`.
+They live under `docs/annotated-screenshots/`.

@@ -27,19 +27,19 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Screenshots** — Redacted UI walkthrough (no personal paths, no Telegram IDs):
 
-![](docs/redacted-screenshots/dashboard.jpg)
+![](docs/annotated-screenshots/dashboard.jpg)
 
-![](docs/redacted-screenshots/agents.jpg)
+![](docs/annotated-screenshots/agents.jpg)
 
-![](docs/redacted-screenshots/channels.jpg)
+![](docs/annotated-screenshots/channels.jpg)
 
-![](docs/redacted-screenshots/models.jpg)
+![](docs/annotated-screenshots/models.jpg)
 
-![](docs/redacted-screenshots/auth.jpg)
+![](docs/annotated-screenshots/auth.jpg)
 
-![](docs/redacted-screenshots/stats.jpg)
+![](docs/annotated-screenshots/stats.jpg)
 
-![](docs/redacted-screenshots/cron.jpg)
+![](docs/annotated-screenshots/cron.jpg)
 
 
 **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
@@ -50,7 +50,7 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Built-in CLI** — Run any OpenClaw CLI command with real-time streaming output. Includes tab completion and saved favorites.
 
-![](docs/redacted-screenshots/cli.jpg)
+![](docs/annotated-screenshots/cli.jpg)
 
 **Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
 
