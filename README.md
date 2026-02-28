@@ -54,6 +54,16 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Bilingual UI** — English and Chinese interface with one-click language switching.
 
+## What's New (v0.7.x)
+
+- **Dashboard redesign**: circular CPU/RAM/DISK gauges + system/gateway/agent overview, with optional auto-refresh.
+- **Sub-agent creation flow**: step-by-step Telegram guide (BotFather → group → get group ID → fill form), with explicit safety warnings.
+- **Telegram allowlist helper**: optional “Your Telegram User ID” field can auto-append to `channels.telegram.allowFrom`.
+- **Model dropdown = real CLI output**: selectors are sourced from `openclaw models list` (with a warning if parsing fails).
+- **Cache-busting**: response headers + version checks help prevent stale frontend after updates.
+- **Setup page EN localization**: first-run directory selection page is fully bilingual.
+
+
 ## Telegram Workflow & Safety
 
 OCM is designed primarily for **Telegram-based OpenClaw workflows**:
