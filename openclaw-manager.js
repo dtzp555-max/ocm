@@ -137,6 +137,16 @@ function resolvePath(p) {
   return p.replace(/^~/, os.homedir());
 }
 
+function resolveAgentWorkspacePath(cfg, agentId, agent) {
+  const defaultsWs = cfg?.agents?.defaults?.workspace || '';
+  const raw = (agent && agent.workspace) || (agentId === 'main' ? defaultsWs : '');
+  const expanded = resolvePath(raw || '');
+  if (expanded) {
+    return path.isAbsolute(expanded) ? expanded : path.resolve(OPENCLAW_DIR, expanded);
+  }
+  return path.join(OPENCLAW_DIR, 'workspace', agentId);
+}
+
 async function dirExists(p) {
   try { const s = await fsp.stat(p); return s.isDirectory(); } catch { return false; }
 }
@@ -613,7 +623,7 @@ async function handleApi(req, res, urlObj, body) {
     const cfg = await readConfig();
     const agent = cfg.agents?.list?.find(a => a.id === agentId);
     if (!agent) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
-    const wsPath = resolvePath(agent.workspace);
+    const wsPath = resolveAgentWorkspacePath(cfg, agentId, agent);
     const files = {};
     const fileStats = {};
     try {
@@ -649,7 +659,8 @@ async function handleApi(req, res, urlObj, body) {
     const cfg   = await readConfig();
     const agent = cfg.agents?.list?.find(a => a.id === agentId);
     if (!agent) { res.writeHead(404); res.end(JSON.stringify({ error: 'Agent 不存在' })); return; }
-    const wsPath = resolvePath(agent.workspace);
+    const wsPath = resolveAgentWorkspacePath(cfg, agentId, agent);
+    await fsp.mkdir(wsPath, { recursive: true });
     await fsp.writeFile(path.join(wsPath, fname), body.content || '', 'utf8');
     res.writeHead(200);
     res.end(JSON.stringify({ ok: true }));
@@ -1355,17 +1366,25 @@ async function handleApi(req, res, urlObj, body) {
         }
       } catch (_) { gatewayRunning = 'stopped'; }
 
-      // HTTP ping gateway (port from config or default 3000)
+      // Gateway port (from config or default 3000)
       let gatewayPort = null;
-      let gatewayPing = false;
       try {
         if (cfg && cfg.channels && cfg.channels.telegram) {
           gatewayPort = cfg.channels.telegram.port || null;
         }
         if (!gatewayPort) gatewayPort = 3000;
-        const pingResult = spawnSync('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', 'http://127.0.0.1:' + gatewayPort], { encoding: 'utf8', timeout: 4000 });
-        const code = parseInt((pingResult.stdout || '').trim());
-        gatewayPing = code > 0 && code < 500;
+      } catch (_) {}
+
+      // Telegram routing/bot counts
+      let bindingCount = 0, accountCount = 0, groupCount = 0, allowFromCount = 0, configAgentCount = 0;
+      try {
+        bindingCount = (cfg?.bindings || []).length;
+        const accounts = cfg?.channels?.telegram?.accounts || {};
+        accountCount = Object.keys(accounts).length;
+        groupCount = Object.keys(cfg?.channels?.telegram?.groups || {}).length;
+        if (!accountCount && cfg?.channels?.telegram?.botToken) accountCount = 1; // legacy single-token config
+        allowFromCount = (cfg?.channels?.telegram?.allowFrom || []).length;
+        configAgentCount = (cfg?.agents?.list || []).length;
       } catch (_) {}
 
       // Agent count (main vs sub) & last activity
@@ -1408,8 +1427,8 @@ async function handleApi(req, res, urlObj, body) {
       res.end(JSON.stringify({
         ok: true,
         system: { hostname, platform, nodeVer, cpuModel, cpuCores, uptime: sysUptime, totalMem, freeMem, diskTotal, diskUsed, diskFree, dirSize, cpuPercent, loadAvg },
-        gateway: { status: gatewayRunning, pid: gatewayPid, port: gatewayPort, ping: gatewayPing },
-        agents: { count: agentCount, mainCount: mainAgentCount, subCount: subAgentCount, lastActivity: lastActivity ? lastActivity.toISOString() : null },
+        gateway: { status: gatewayRunning, pid: gatewayPid, port: gatewayPort, host: HOST, accountCount, groupCount, bindingCount, allowFromCount },
+        agents: { count: agentCount, configCount: configAgentCount, mainCount: mainAgentCount, subCount: subAgentCount, lastActivity: lastActivity ? lastActivity.toISOString() : null },
         ocmVersion: APP_VERSION,
         serverTime: now,
       }));
@@ -1659,6 +1678,7 @@ select option { background:var(--surface); }
 .dash-gauge-label { font-size:12px; color:var(--muted); margin-top:8px; font-weight:500; }
 .dash-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
 .dash-card { padding:20px; }
+.dash-card-wide { grid-column:span 2; }
 .dash-card h3 { font-size:14px; font-weight:600; margin-bottom:14px; color:var(--text); }
 .dash-notice { margin-top:18px; padding:16px 18px; }
 .dash-notice h3 { font-size:14px; margin-bottom:10px; }
@@ -1672,6 +1692,9 @@ select option { background:var(--surface); }
 .dash-indicator.running { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.5); }
 .dash-indicator.stopped { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.5); }
 .dash-indicator.unknown { background:#f59e0b; }
+@media (max-width: 980px) {
+  .dash-card-wide { grid-column:span 1; }
+}
 
 /* ── Modal ── */
 .backdrop { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; display:none; align-items:center; justify-content:center; }
@@ -1735,6 +1758,9 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 .ch-badge { font-size:11px; padding:2px 7px; border-radius:12px; }
 .ch-tg  { background:rgba(51,144,236,.15); color:#33a0ec; }
 .ch-any { background:var(--border); color:var(--muted); }
+.channels-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.channels-filter-label { font-size:12px; color:var(--muted); }
+.channels-filter { min-width:180px; max-width:260px; font-size:12px; padding:6px 10px; }
 
 /* NAS backup */
 .nas-step { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; }
@@ -1816,9 +1842,8 @@ const MAIN_HTML_BODY = String.raw`
 <nav>
   <div class="tab active" data-tab="dashboard"><span data-i18n="tab.dashboard">🏠 Dashboard</span></div>
   <div class="tab" data-tab="agents"><span data-i18n="tab.agents">🤖 Agents</span></div>
-  <div class="tab" data-tab="channels"><span data-i18n="tab.channels">📡 Channels</span></div>
-  <div class="tab" data-tab="models"><span data-i18n="tab.models">🧠 模型</span></div>
-  <div class="tab" data-tab="auth"><span data-i18n="tab.auth">🔑 认证</span></div>
+  <div class="tab" data-tab="channels"><span data-i18n="tab.channels">🧭 Routing</span></div>
+  <div class="tab" data-tab="models"><span data-i18n="tab.models">🧠 模型与认证</span></div>
   <div class="tab" data-tab="stats"><span data-i18n="tab.stats">📊 Stats</span></div>
   <div class="tab" data-tab="cron"><span data-i18n="tab.cron">⏰ Cron</span></div>
   <button class="cli-nav-btn" id="cliToggleBtn" onclick="toggleCliPanel()"><span data-i18n="cli.open">⌨️ 终端</span></button>
@@ -1848,13 +1873,13 @@ const MAIN_HTML_BODY = String.raw`
         <h3>🖥️ System Info</h3>
         <div class="dash-items" id="dashSysItems"><div class="empty">Loading...</div></div>
       </div>
-      <div class="card dash-card" id="dashGateway">
-        <h3>🦀 Gateway</h3>
-        <div class="dash-items" id="dashGwItems"><div class="empty">Loading...</div></div>
-      </div>
-      <div class="card dash-card" id="dashAgents">
+      <div class="card dash-card dash-card-wide" id="dashAgents">
         <h3>🤖 Agents</h3>
         <div class="dash-items" id="dashAgentItems"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="card dash-card dash-card-wide" id="dashGateway">
+        <h3>🦀 Gateway</h3>
+        <div class="dash-items" id="dashGwItems"><div class="empty">Loading...</div></div>
       </div>
       <div class="card dash-card" id="dashStorage">
         <h3>💾 Storage</h3>
@@ -1887,10 +1912,14 @@ const MAIN_HTML_BODY = String.raw`
   <!-- ══ Channels ══════════════════════════════════════════════ -->
   <div class="panel" id="panel-channels">
     <div class="sec-hdr">
-      <h2 data-i18n="channels.title">Channel 绑定</h2>
-      <button class="btn-primary" onclick="openAddChannel()" data-i18n="channels.add">＋ 添加绑定</button>
+      <h2 data-i18n="channels.title">Routing Bindings</h2>
+      <div class="channels-toolbar">
+        <span class="channels-filter-label" data-i18n="channels.filterLabel">Agent</span>
+        <select id="channelsAgentFilter" class="channels-filter" onchange="onChannelFilterChange(this.value)"></select>
+        <button class="btn-primary" onclick="openAddChannel()" data-i18n="channels.add">＋ Add Binding</button>
+      </div>
     </div>
-    <p class="hint-text" style="margin-bottom:14px" data-i18n="channels.hint">管理 Agent 与频道/群组的绑定关系。绑定顺序决定优先级，排在前面的规则先匹配。</p>
+    <p class="hint-text" style="margin-bottom:14px" data-i18n="channels.hint">Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.</p>
     <div class="card-grid" id="channelList"><div class="empty">加载中...</div></div>
   </div>
 
@@ -1916,24 +1945,13 @@ const MAIN_HTML_BODY = String.raw`
       </div>
       <div id="fallbackList" class="tag-row" style="margin-top:10px"></div>
     </div>
-  </div>
-
-  <!-- ══ 认证 ════════════════════════════════════════════════ -->
-  <div class="panel" id="panel-auth">
-    <div class="sec-hdr">
-      <h2 data-i18n="auth.title">认证配置</h2>
-    </div>
+    <hr>
+    <div class="sec-hdr"><h2 style="font-size:14px" data-i18n="auth.title">认证配置</h2></div>
     <p class="hint-text" style="margin-bottom:14px" data-i18n="auth.guide">点击 Provider 查看认证步骤。认证需在终端完成，或使用下方 CLI 终端。</p>
-
-    <!-- Provider 选择网格 -->
     <div class="auth-prov-grid" id="authProvGrid" style="margin-bottom:16px"></div>
-
-    <!-- 选中 Provider 的指引区 -->
     <div class="card" id="authActionCard" style="display:none;margin-bottom:16px">
       <div id="authActionContent"></div>
     </div>
-
-    <!-- 已配置的认证列表 -->
     <div class="sec-hdr"><h2 style="font-size:14px" data-i18n="auth.configured">已配置认证</h2></div>
     <div class="card-grid" id="authList"><div class="empty">加载中...</div></div>
   </div>
@@ -1943,8 +1961,9 @@ const MAIN_HTML_BODY = String.raw`
     <div class="sec-hdr">
       <h2 data-i18n="stats.title">使用统计</h2>
       <select id="statsDaysFilter" onchange="loadStats()" style="padding:6px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        <option value="1" selected>1 day</option>
         <option value="7">7 days</option>
-        <option value="30" selected>30 days</option>
+        <option value="30">30 days</option>
         <option value="90">90 days</option>
       </select>
     </div>
@@ -2241,10 +2260,11 @@ const MAIN_HTML_SCRIPT = `// ── i18n ─────────────
 const I18N = {
   zh: {
     'tab.dashboard':'🏠 Dashboard',
-    'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 模型','tab.auth':'🔑 认证',
+    'tab.agents':'🤖 Agents','tab.channels':'🧭 路由','tab.models':'🧠 模型与认证','tab.auth':'🔑 认证',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ 新建 Subagent',
-    'channels.title':'Channel 绑定','channels.add':'＋ 添加绑定','channels.hint':'管理 Agent 与频道/群组的绑定关系。绑定顺序决定优先级。',
+    'channels.title':'路由绑定','channels.add':'＋ 添加绑定','channels.hint':'用于高级路由管理：维护 Agent 与频道/群组绑定及优先级顺序。日常增减 Agent 请在 Agents 页面操作。',
+    'channels.filterLabel':'Agent','channels.filterAll':'全部 Agent','channels.emptyFiltered':'当前 Agent 下暂无绑定',
     'models.title':'模型管理','models.primary':'默认主模型','models.fallback':'Fallback 链',
     'models.hint':'模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。',
     'models.onlyCliHint':'模型下拉仅显示 openclaw models list 返回的模型。',
@@ -2360,10 +2380,11 @@ const I18N = {
   },
   en: {
     'tab.dashboard':'🏠 Dashboard',
-    'tab.agents':'🤖 Agents','tab.channels':'📡 Channels','tab.models':'🧠 Models','tab.auth':'🔑 Auth',
+    'tab.agents':'🤖 Agents','tab.channels':'🧭 Routing','tab.models':'🧠 Models & Auth','tab.auth':'🔑 Auth',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ New Subagent',
-    'channels.title':'Channel Bindings','channels.add':'＋ Add Binding','channels.hint':'Manage Agent to channel/group bindings. Order determines priority.',
+    'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.',
+    'channels.filterLabel':'Agent','channels.filterAll':'All Agents','channels.emptyFiltered':'No bindings for selected agent',
     'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
     'models.hint':'Models are registered via openclaw onboard. Manage primary model and fallback chain here.',
     'models.onlyCliHint':'Model dropdowns only show IDs returned by openclaw models list.',
@@ -2501,6 +2522,7 @@ function applyLang() {
   // Re-render model/auth cards so Remove button text updates
   try{ renderModels(); }catch(_){}
   try{ renderAuth(); }catch(_){}
+  try{ renderChannels(); }catch(_){}
   // Rebuild presets dropdown if CLI is open
   if(document.getElementById('cliPanel')&&document.getElementById('cliPanel').classList.contains('open')){
     buildCliPresets();
@@ -2542,6 +2564,7 @@ let S = { agents:[], channels:[], models:{}, authProfiles:{}, knownModels:[], mo
 let wizCur = 1;
 let logTimer = null;
 let selectedAuthProv = null;
+let channelFilterAgent = '__all__';
 
 // ── 初始化（enterApp 触发） ─────────────────────────────────
 async function checkStatus(){
@@ -2554,7 +2577,10 @@ async function checkStatus(){
   }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
 }
 
-async function loadAll(){ await Promise.all([loadAgents(), loadModels(), loadChannels()]); }
+async function loadAll(){
+  await Promise.all([loadAgents(), loadModels(), loadChannels()]);
+  try{ renderChannels(); }catch(_){}
+}
 
 // ── Dashboard ─────────────────────────────────────────────────
 let dashLoaded=false;
@@ -2613,14 +2639,19 @@ async function loadDashboard(){
     const statusIcon='<span class="dash-indicator '+esc(g.status)+'"></span>';
     const statusLabel=g.status==='running'?'Running':g.status==='stopped'?'Stopped':'Unknown';
     let gwHtml=dashRow('Status',statusIcon+statusLabel);
+    gwHtml+=dashRow('Bind Host',esc(g.host||'—'));
     gwHtml+=dashRow('Port',String(g.port||'—'));
     if(g.pid)gwHtml+=dashRow('PID',g.pid);
-    gwHtml+=dashRow('HTTP Ping',g.ping?'<span style="color:#22c55e">✓ Reachable</span>':'<span style="color:#ef4444">✗ Unreachable</span>');
+    gwHtml+=dashRow('Telegram Accounts',String(g.accountCount||0));
+    gwHtml+=dashRow('Groups',String(g.groupCount||0));
+    gwHtml+=dashRow('Bindings',String(g.bindingCount||0));
+    gwHtml+=dashRow('allowFrom',String(g.allowFromCount||0));
     document.getElementById('dashGwItems').innerHTML=gwHtml;
     // Agents card
-    let agHtml=dashRow('Main Agents',String(a.mainCount||0));
+    let agHtml=dashRow('Configured Agents',String(a.configCount||0));
+    agHtml+=dashRow('Runtime Agent Dirs',String(a.count||0));
+    agHtml+=dashRow('Agent Trees',String(a.mainCount||0));
     agHtml+=dashRow('Sub-Agents',String(a.subCount||0));
-    agHtml+=dashRow('Total',String(a.count));
     if(a.lastActivity){
       const d=new Date(a.lastActivity);
       agHtml+=dashRow('Last Activity',d.toLocaleString('en-AU',{timeZone:'Australia/Brisbane',hour12:false}));
@@ -2960,10 +2991,43 @@ async function saveAgentModel(agentId){
 }
 
 // ── 渲染 Channels ────────────────────────────────────────────
+function getChannelAgentChoices(){
+  const byId={};
+  (S.agents||[]).forEach(a=>{
+    if(a&&a.id) byId[a.id]=a.name||a.id;
+  });
+  (S.channels||[]).forEach(ch=>{
+    if(ch&&ch.agentId&&!byId[ch.agentId]) byId[ch.agentId]=ch.agentName||ch.agentId;
+  });
+  return Object.keys(byId).sort((a,b)=>a.localeCompare(b)).map(id=>({id,name:byId[id]}));
+}
+
+function renderChannelFilter(){
+  const sel=document.getElementById('channelsAgentFilter');
+  if(!sel) return;
+  const choices=getChannelAgentChoices();
+  if(channelFilterAgent!=='__all__' && !choices.some(c=>c.id===channelFilterAgent)){
+    channelFilterAgent='__all__';
+  }
+  let html=\`<option value="__all__"\${channelFilterAgent==='__all__'?' selected':''}>\${esc(t('channels.filterAll'))}</option>\`;
+  html+=choices.map(c=>\`<option value="\${esc(c.id)}"\${channelFilterAgent===c.id?' selected':''}>\${esc(c.name)} (\${esc(c.id)})</option>\`).join('');
+  sel.innerHTML=html;
+}
+
+function onChannelFilterChange(v){
+  channelFilterAgent=v||'__all__';
+  renderChannels();
+}
+
 function renderChannels(){
   const el=document.getElementById('channelList');
+  renderChannelFilter();
   if(!S.channels.length){el.innerHTML='<div class="empty">'+t('channels.empty')+'</div>';return;}
-  el.innerHTML=S.channels.map(ch=>{
+  const rows=channelFilterAgent==='__all__'
+    ? S.channels
+    : S.channels.filter(ch=>ch.agentId===channelFilterAgent);
+  if(!rows.length){el.innerHTML='<div class="empty">'+t('channels.emptyFiltered')+'</div>';return;}
+  el.innerHTML=rows.map(ch=>{
     const chClass=ch.channel==='telegram'?'ch-tg':'ch-any';
     return \`<div class="card">
       <div class="card-row">
@@ -3607,7 +3671,7 @@ function cliCloseAC(){ const b=document.getElementById('cliACBox'); if(b) b.remo
 // ── Stats (Usage Statistics) ────────────────────────────────
 async function loadStats(){
   try{
-    const days=document.getElementById('statsDaysFilter')?.value||30;
+    const days=document.getElementById('statsDaysFilter')?.value||1;
     const r=await api('GET','/api/stats?days='+days);
     const s=r.summary||{};
     document.getElementById('statsTotalInput').textContent=fmtNum(s.totalInputTokens||0);

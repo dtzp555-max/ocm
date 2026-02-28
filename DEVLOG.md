@@ -1,7 +1,43 @@
 # OpenClaw Manager — 开发日志
 
-> 最后更新：2026-02-27
+> 最后更新：2026-02-28
 > 当前版本：v0.7.1
+
+---
+
+## Unreleased（2026-02-28）
+
+### Dashboard / Layout
+
+- Removed the dashboard `HTTP Ping` field (often misleading in Telegram gateway setups)
+- Expanded dashboard visibility with richer gateway routing metadata:
+  - bind host
+  - telegram account count
+  - group count
+  - binding count
+  - allowFrom count
+- Reordered dashboard cards and made `Agents` / `Gateway` cards wider for denser information display
+
+### Bug Fixes
+
+- Fixed `main` agent workspace file browsing/editing fallback:
+  - when agent-level workspace is empty, it now resolves from defaults or `workspace/<agentId>`
+  - writing files now ensures workspace directory exists before save
+
+### UX Clarification
+
+- Channels page hint text updated to position it as **advanced routing management**
+- Clarifies scope difference from Agents page (daily add/remove should stay in Agents)
+- Navigation label updated from `Channels` to `Routing` to reduce conceptual overlap with Agent lifecycle management
+- Added `Routing` page agent filter (`All Agents` + per-agent quick filter) for easier large-tree inspection
+
+### Settings UX
+
+- Merged `Models` and `Auth` pages into a single `Models & Auth` tab
+
+### Stats
+
+- Added daily (`1 day`) range option and set it as default
 
 ---
 
