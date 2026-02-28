@@ -48,7 +48,9 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
 
-**Built-in CLI** — Run any `openclaw` command with real-time streaming output. Preset commands, favorites, and tab completion included.
+**Built-in CLI** — Run any OpenClaw CLI command with real-time streaming output. Includes tab completion and saved favorites.
+
+![](docs/redacted-screenshots/cli.jpg)
 
 **Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
 

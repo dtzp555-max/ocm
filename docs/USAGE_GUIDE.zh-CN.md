@@ -208,6 +208,22 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 ---
 
+## 9) CLI 终端（内置）
+
+OCM 内置一个 CLI 面板，用来直接运行 OpenClaw 命令（例如：`openclaw status`、`openclaw gateway logs --follow`、`openclaw doctor`）。
+
+入口：点击顶部导航栏的 **⌨️ 终端**，或使用页面底部的 CLI 区域。
+
+功能要点：
+- **Tab 补全**：输入命令时按 Tab 进行补全/提示（适合 `openclaw ...` 子命令）
+- **常用命令**：可从下拉选择，一键填充常用命令模板
+- **收藏（Favorites）**：把常用命令保存为收藏，后续一键执行
+- **实时输出**：执行后会流式显示 stdout/stderr，方便排错
+
+截图示例：
+
+![](redacted-screenshots/cli.jpg)
+
 ## 9) Cron（定时任务）
 
 进入 **Cron**：

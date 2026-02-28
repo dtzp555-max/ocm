@@ -236,6 +236,22 @@ You can:
 
 ---
 
+## 11) Built-in CLI Terminal
+
+OCM includes a built-in terminal panel to run OpenClaw CLI commands directly (for example: `openclaw status`, `openclaw gateway logs --follow`, `openclaw doctor`).
+
+How to open: click **⌨️ Terminal** in the top navigation, or use the bottom CLI panel.
+
+Highlights:
+- **Tab completion** while typing commands
+- **Common commands** dropdown to insert templates quickly
+- **Favorites**: save frequently used commands and run them with one click
+- **Streaming output** (stdout/stderr) for faster debugging
+
+Screenshot:
+
+![](redacted-screenshots/cli.jpg)
+
 ## 11) Fast troubleshooting
 
 ### “Typing…” but no reply in a Telegram group
