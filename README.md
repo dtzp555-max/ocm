@@ -49,6 +49,8 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 ![](docs/redacted-screenshots/cron.jpg)
 
+![](docs/redacted-screenshots/actions.jpg)
+
 
 **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
 
@@ -56,9 +58,11 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
 
-**Built-in CLI** — Run any OpenClaw CLI command with real-time streaming output. Includes tab completion and saved favorites.
+**Built-in CLI** — Available from any page (top-right **Terminal** + bottom dock). Run OpenClaw commands with **real-time streaming output**, **Tab completion**, built-in presets, and your own saved favorites (no more memorizing commands).
 
 ![](docs/redacted-screenshots/cli.jpg)
+
+![](docs/redacted-screenshots/cli-output.jpg)
 
 **Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
 

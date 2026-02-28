@@ -223,6 +223,20 @@ OCM parses usage from OpenClaw session JSONL files.
 
 ---
 
+## 10) Actions menu (ops shortcuts)
+
+The **⚡ Actions** dropdown in the top-right provides common operational shortcuts:
+- Restart Gateway
+- Live Logs
+- Manual Backup / Backups & Rollback
+- NAS Backup Setup
+- Health Check
+- Open Config Dir / Switch OpenClaw Dir
+
+Screenshot:
+
+![](redacted-screenshots/actions.jpg)
+
 ## 10) Cron jobs (Cron)
 
 Go to **Cron**:
@@ -251,6 +265,8 @@ Highlights:
 Screenshot:
 
 ![](redacted-screenshots/cli.jpg)
+
+![](redacted-screenshots/cli-output.jpg)
 
 ## 11) Fast troubleshooting
 

@@ -224,6 +224,22 @@ OCM 内置一个 CLI 面板，用来直接运行 OpenClaw 命令（例如：`ope
 
 ![](redacted-screenshots/cli.jpg)
 
+![](redacted-screenshots/cli-output.jpg)
+
+## 9) Actions 菜单（运维快捷入口）
+
+右上角 **⚡ Actions** 下拉菜单提供常用运维操作：
+- Restart Gateway（重启网关）
+- Live Logs（实时日志）
+- Manual Backup / Backups & Rollback（备份/回滚）
+- NAS Backup Setup（NAS 备份配置）
+- Health Check（健康检查）
+- Open Config Dir / Switch OpenClaw Dir（打开/切换配置目录）
+
+截图示例：
+
+![](redacted-screenshots/actions.jpg)
+
 ## 9) Cron（定时任务）
 
 进入 **Cron**：
