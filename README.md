@@ -25,6 +25,8 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 ## Features
 
+**Screenshots** — See `docs/redacted-screenshots/` for a full UI walk-through (redacted examples: no personal paths, no Telegram IDs).
+
 **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
 
 **Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
