@@ -47,6 +47,7 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
   <img src="docs/redacted-screenshots/actions.jpg" width="240" />
   <img src="docs/redacted-screenshots/cli.jpg" width="240" />
   <img src="docs/redacted-screenshots/cli-output.jpg" width="240" />
+  <img src="docs/redacted-screenshots/backup-rollback.jpg" width="240" />
 </p>
 
 </details>
@@ -55,7 +56,8 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 - **Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
 - **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
 - **Built-in CLI** — Available from any page (top-right **Terminal** + bottom dock). Run OpenClaw commands with **real-time streaming output**, **Tab completion**, built-in presets, and your own saved favorites.
-- **Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
+- **Ops Panel** — Restart gateway, view logs, run health checks, manage backups, **rollback/restore configs**, and handle cron tasks.
+- **Backups / Rollback** — Browse auto-snapshots of `openclaw.json*` and restore any previous version (current config is auto-backed up first).
 - **Bilingual UI** — English and Chinese interface with one-click language switching.
 
 ## What's New (v0.8.x)
