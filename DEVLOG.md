@@ -30,6 +30,7 @@
 - Clarifies scope difference from Agents page (daily add/remove should stay in Agents)
 - Navigation label updated from `Channels` to `Routing` to reduce conceptual overlap with Agent lifecycle management
 - Added `Routing` page agent filter (`All Agents` + per-agent quick filter) for easier large-tree inspection
+- Added compact grouped rendering in `Routing`: bindings are grouped by agent with expand/collapse support for denser large-config browsing
 
 ### Settings UX
 

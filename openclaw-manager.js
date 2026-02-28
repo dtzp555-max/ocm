@@ -1761,6 +1761,18 @@ code { font-size:12px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius
 .channels-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .channels-filter-label { font-size:12px; color:var(--muted); }
 .channels-filter { min-width:180px; max-width:260px; font-size:12px; padding:6px 10px; }
+.routing-group { background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.routing-group-hdr { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:rgba(255,255,255,.02); border-bottom:1px solid var(--border); }
+.routing-group-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.routing-group-name { font-size:13px; font-weight:600; color:var(--text); }
+.routing-group-count { font-size:11px; color:var(--muted); }
+.routing-toggle { font-size:11px; padding:4px 10px; }
+.routing-list { display:flex; flex-direction:column; }
+.routing-list.collapsed { display:none; }
+.routing-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; border-bottom:1px solid var(--border); }
+.routing-row:last-child { border-bottom:none; }
+.routing-row-main { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; min-width:0; }
+.routing-row-sub { font-size:11px; color:var(--muted); }
 
 /* NAS backup */
 .nas-step { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; }
@@ -2265,6 +2277,7 @@ const I18N = {
     'agents.title':'Agents','agents.new':'＋ 新建 Subagent',
     'channels.title':'路由绑定','channels.add':'＋ 添加绑定','channels.hint':'用于高级路由管理：维护 Agent 与频道/群组绑定及优先级顺序。日常增减 Agent 请在 Agents 页面操作。',
     'channels.filterLabel':'Agent','channels.filterAll':'全部 Agent','channels.emptyFiltered':'当前 Agent 下暂无绑定',
+    'channels.countSuffix':'条绑定','channels.collapse':'折叠','channels.expand':'展开',
     'models.title':'模型管理','models.primary':'默认主模型','models.fallback':'Fallback 链',
     'models.hint':'模型由 openclaw onboard 注册，此处管理主模型和 Fallback 链。',
     'models.onlyCliHint':'模型下拉仅显示 openclaw models list 返回的模型。',
@@ -2385,6 +2398,7 @@ const I18N = {
     'agents.title':'Agents','agents.new':'＋ New Subagent',
     'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.',
     'channels.filterLabel':'Agent','channels.filterAll':'All Agents','channels.emptyFiltered':'No bindings for selected agent',
+    'channels.countSuffix':'bindings','channels.collapse':'Collapse','channels.expand':'Expand',
     'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
     'models.hint':'Models are registered via openclaw onboard. Manage primary model and fallback chain here.',
     'models.onlyCliHint':'Model dropdowns only show IDs returned by openclaw models list.',
@@ -2565,6 +2579,7 @@ let wizCur = 1;
 let logTimer = null;
 let selectedAuthProv = null;
 let channelFilterAgent = '__all__';
+let routingCollapsedByAgent = {};
 
 // ── 初始化（enterApp 触发） ─────────────────────────────────
 async function checkStatus(){
@@ -3019,6 +3034,11 @@ function onChannelFilterChange(v){
   renderChannels();
 }
 
+function toggleRoutingGroup(agentId){
+  routingCollapsedByAgent[agentId]=!routingCollapsedByAgent[agentId];
+  renderChannels();
+}
+
 function renderChannels(){
   const el=document.getElementById('channelList');
   renderChannelFilter();
@@ -3027,19 +3047,47 @@ function renderChannels(){
     ? S.channels
     : S.channels.filter(ch=>ch.agentId===channelFilterAgent);
   if(!rows.length){el.innerHTML='<div class="empty">'+t('channels.emptyFiltered')+'</div>';return;}
-  el.innerHTML=rows.map(ch=>{
-    const chClass=ch.channel==='telegram'?'ch-tg':'ch-any';
-    return \`<div class="card">
-      <div class="card-row">
-        <span class="card-title">\${esc(ch.agentName)}</span>
-        <span class="badge">agent: \${esc(ch.agentId)}</span>
-        \${ch.channel?\`<span class="ch-badge \${chClass}">\${esc(ch.channel)}</span>\`:'<span class="ch-badge ch-any">any</span>'}
-        \${ch.peerKind?\`<span class="badge">\${esc(ch.peerKind)}</span>\`:''}
+  const groups={};
+  rows.forEach(ch=>{
+    const key=ch.agentId||'unknown';
+    if(!groups[key]) groups[key]={ agentId:key, agentName:ch.agentName||key, rows:[] };
+    groups[key].rows.push(ch);
+  });
+  const sortedGroups=Object.values(groups).sort((a,b)=>(a.agentName||a.agentId).localeCompare(b.agentName||b.agentId));
+  el.innerHTML=sortedGroups.map(g=>{
+    const collapsed=!!routingCollapsedByAgent[g.agentId];
+    const listCls=collapsed?'routing-list collapsed':'routing-list';
+    const toggleText=collapsed?t('channels.expand'):t('channels.collapse');
+    const rowsHtml=g.rows
+      .sort((a,b)=>(a.idx||0)-(b.idx||0))
+      .map(ch=>{
+        const chClass=ch.channel==='telegram'?'ch-tg':'ch-any';
+        const peerMeta=ch.peerId
+          ? \`📱 Peer ID: <code>\${esc(ch.peerId)}</code>\`
+          : t('channels.matchAll');
+        return \`<div class="routing-row">
+          <div style="min-width:0;flex:1">
+            <div class="routing-row-main">
+              <span class="badge">#\${ch.idx}</span>
+              \${ch.channel?\`<span class="ch-badge \${chClass}">\${esc(ch.channel)}</span>\`:'<span class="ch-badge ch-any">any</span>'}
+              \${ch.peerKind?\`<span class="badge">\${esc(ch.peerKind)}</span>\`:''}
+              <span class="routing-row-sub">\${peerMeta}</span>
+            </div>
+          </div>
+          <button class="btn-danger" onclick="deleteChannel(\${ch.idx},'#\${ch.idx} \${esc(ch.agentId)}')">\${t('channels.delBinding')}</button>
+        </div>\`;
+      }).join('');
+    return \`<div class="routing-group">
+      <div class="routing-group-hdr">
+        <div class="routing-group-title">
+          <span class="routing-group-name">\${esc(g.agentName)}</span>
+          <span class="badge">agent: \${esc(g.agentId)}</span>
+          <span class="routing-group-count">\${g.rows.length} \${esc(t('channels.countSuffix'))}</span>
+        </div>
+        <button class="btn-secondary routing-toggle" onclick="toggleRoutingGroup(decodeURIComponent('\${encodeURIComponent(g.agentId)}'))">\${esc(toggleText)}</button>
       </div>
-      \${ch.peerId?\`<div class="card-meta">📱 Peer ID: <code>\${esc(ch.peerId)}</code></div>\`:('<div class="card-meta">'+t('channels.matchAll')+'</div>')}
-      <div class="card-meta" style="font-size:11px">\${t('channels.bindIdx')}\${ch.idx}</div>
-      <div class="card-actions">
-        <button class="btn-danger" onclick="deleteChannel(\${ch.idx},'#\${ch.idx} \${esc(ch.agentId)}')">\${t('channels.delBinding')}</button>
+      <div class="\${listCls}">
+        \${rowsHtml}
       </div>
     </div>\`;
   }).join('');
