@@ -1932,6 +1932,7 @@ const MAIN_HTML_BODY = String.raw`
       </div>
     </div>
     <p class="hint-text" style="margin-bottom:14px" data-i18n="channels.hint">Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.</p>
+    <p class="hint-text" style="margin-top:-8px;margin-bottom:14px" data-i18n="channels.removeHint">When to use <b>Remove binding</b>: if you bound the wrong agent/chat, the group was recreated/migrated (new peer id), you have duplicates/conflicts, you want to decommission a project sub-agent, or you need to temporarily disconnect routing for safety.</p>
     <div class="card-grid" id="channelList"><div class="empty">加载中...</div></div>
   </div>
 
@@ -2396,7 +2397,7 @@ const I18N = {
     'tab.agents':'🤖 Agents','tab.channels':'🧭 Routing','tab.models':'🧠 Models & Auth','tab.auth':'🔑 Auth',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ New Subagent',
-    'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.',
+    'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.','channels.removeHint':'When to use Remove binding: wrong agent/chat, group recreated (new id), duplicates/conflicts, decommission a sub-agent, or temporarily disconnect routing for safety.',
     'channels.filterLabel':'Agent','channels.filterAll':'All Agents','channels.emptyFiltered':'No bindings for selected agent',
     'channels.countSuffix':'bindings','channels.collapse':'Collapse','channels.expand':'Expand',
     'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
