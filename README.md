@@ -2,7 +2,7 @@
 
 A zero-dependency, single-file web dashboard for [OpenClaw](https://github.com/anthropics/openclaw). Manage agents, monitor token usage, and run commands — all from your browser, no `npm install` required.
 
-[中文说明](#中文说明)
+[中文说明](#中文说明) · [中文使用说明（含截图）](docs/USAGE_GUIDE.zh-CN.md)
 
 ---
 
