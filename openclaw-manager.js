@@ -2484,7 +2484,9 @@ const LS = {
   set(k, v)      { try { localStorage.setItem(k, v); } catch(e) {} },
   del(k)         { try { localStorage.removeItem(k); } catch(e) {} },
 };
-let lang = LS.get('ocm_lang', 'zh');
+// Default UI language. Users can toggle and we persist in localStorage.
+// Prefer English by default for broader sharing/promotions.
+let lang = LS.get('ocm_lang', 'en');
 function t(k) { return I18N[lang][k] || I18N.zh[k] || k; }
 function applyLang() {
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
