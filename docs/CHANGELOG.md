@@ -2,6 +2,17 @@
 
 This is a user-facing summary derived from `DEVLOG.md`.
 
+## v0.8.2
+- Docs: reorganize README screenshots into a collapsible gallery to reduce scroll.
+- Docs: add Backups / Rollback screenshot and README feature blurb.
+- Docs: refresh redacted screenshots (Channels + Actions + Stats) and feature descriptions.
+
+## v0.8.1
+- Docs: add Stats screenshot and expand feature list.
+
+## v0.8.0
+- Docs: bilingual usage guides refreshed (EN + zh-CN) with redacted screenshots.
+
 ## v0.7.6
 - Docs: annotated screenshots with arrows for key UI controls.
 
