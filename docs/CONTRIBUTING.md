@@ -4,10 +4,18 @@ This repo is optimized for fast iteration and safe maintenance.
 
 ## Workflow (PM + Codex)
 
+Default rule:
+
 - Codex implements changes on a **new branch** and opens a **PR**.
 - Xiao Qiang (PM) reviews + runs local smoke tests.
 - Tao approves.
 - Only after explicit approval, we merge.
+
+Fast-path (small changes):
+
+- For small doc/copy/layout fixes, Tao allows **auto-merge after PM verification** (tests/smoke pass).
+- PM must still send Tao a short completion note with the PR link and summary.
+
 
 ## Versioning
 
