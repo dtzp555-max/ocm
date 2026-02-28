@@ -25,7 +25,22 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 ## Features
 
-**Screenshots** — See `docs/redacted-screenshots/` for a full UI walk-through (redacted examples: no personal paths, no Telegram IDs).
+**Screenshots** — Redacted UI walkthrough (no personal paths, no Telegram IDs):
+
+![](docs/redacted-screenshots/dashboard.jpg)
+
+![](docs/redacted-screenshots/agents.jpg)
+
+![](docs/redacted-screenshots/channels.jpg)
+
+![](docs/redacted-screenshots/models.jpg)
+
+![](docs/redacted-screenshots/auth.jpg)
+
+![](docs/redacted-screenshots/stats.jpg)
+
+![](docs/redacted-screenshots/cron.jpg)
+
 
 **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
 
