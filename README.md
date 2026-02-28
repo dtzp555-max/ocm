@@ -22,6 +22,14 @@ git pull --ff-only
 ```
 
 Open [http://localhost:3333](http://localhost:3333) in your browser. For remote access, use `bash start.sh --host 0.0.0.0`.
+## Docs
+
+- English guide: docs/USAGE_GUIDE.en.md
+- 中文使用说明: docs/USAGE_GUIDE.zh-CN.md
+- FAQ: docs/FAQ.md
+- Security notes: docs/SECURITY.md
+- Changelog: docs/CHANGELOG.md
+
 
 ## Features
 
