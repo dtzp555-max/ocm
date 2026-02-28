@@ -33,51 +33,38 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 
 ## Features
 
-**Screenshots** — Redacted UI walkthrough (no personal paths, no Telegram IDs):
+<details>
+<summary><b>Screenshots</b> (redacted: no personal paths, no Telegram IDs)</summary>
 
-![](docs/redacted-screenshots/dashboard.jpg)
+<p>
+  <img src="docs/redacted-screenshots/dashboard.jpg" width="240" />
+  <img src="docs/redacted-screenshots/agents.jpg" width="240" />
+  <img src="docs/redacted-screenshots/channels.jpg" width="240" />
+  <img src="docs/redacted-screenshots/models.jpg" width="240" />
+  <img src="docs/redacted-screenshots/auth.jpg" width="240" />
+  <img src="docs/redacted-screenshots/stats.jpg" width="240" />
+  <img src="docs/redacted-screenshots/cron.jpg" width="240" />
+  <img src="docs/redacted-screenshots/actions.jpg" width="240" />
+  <img src="docs/redacted-screenshots/cli.jpg" width="240" />
+  <img src="docs/redacted-screenshots/cli-output.jpg" width="240" />
+</p>
 
-![](docs/redacted-screenshots/agents.jpg)
+</details>
 
-![](docs/redacted-screenshots/channels.jpg)
+- **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
+- **Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
+- **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
+- **Built-in CLI** — Available from any page (top-right **Terminal** + bottom dock). Run OpenClaw commands with **real-time streaming output**, **Tab completion**, built-in presets, and your own saved favorites.
+- **Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
+- **Bilingual UI** — English and Chinese interface with one-click language switching.
 
-![](docs/redacted-screenshots/models.jpg)
+## What's New (v0.8.x)
 
-![](docs/redacted-screenshots/auth.jpg)
-
-![](docs/redacted-screenshots/stats.jpg)
-
-![](docs/redacted-screenshots/cron.jpg)
-
-![](docs/redacted-screenshots/actions.jpg)
-
-
-**Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
-
-**Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
-
-**Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
-
-**Built-in CLI** — Available from any page (top-right **Terminal** + bottom dock). Run OpenClaw commands with **real-time streaming output**, **Tab completion**, built-in presets, and your own saved favorites (no more memorizing commands).
-
-![](docs/redacted-screenshots/cli.jpg)
-
-![](docs/redacted-screenshots/cli-output.jpg)
-
-**Ops Panel** — Restart gateway, view logs, run health checks, manage backups (local + NAS via SFTP/rsync), and handle cron tasks.
-
-**Bilingual UI** — English and Chinese interface with one-click language switching.
-
-## What's New (v0.7.x)
-
-- **Dashboard redesign**: circular CPU/RAM/DISK gauges + system/gateway/agent overview, with optional auto-refresh.
-- **Sub-agent creation flow**: step-by-step Telegram guide (BotFather → group → get group ID → fill form), with explicit safety warnings.
-- **Telegram allowlist helper**: optional “Your Telegram User ID” field can auto-append to `channels.telegram.allowFrom`.
-- **Model dropdown = real CLI output**: selectors are sourced from `openclaw models list` (with a warning if parsing fails).
-- **Cache-busting**: response headers + version checks help prevent stale frontend after updates.
-- **Setup page EN localization**: first-run directory selection page is fully bilingual.
-
-
+- **Docs refresh (v0.8.x)**: updated English + Chinese guides and refreshed redacted screenshots.
+- **README screenshots gallery**: all screenshots are now grouped into one collapsible section to keep the homepage short.
+- **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
+- **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
+- **Telegram-first workflow**: safer sub-agent setup flow + allowlist helper + warnings for group privacy.
 ## Telegram Workflow & Safety
 
 OCM is designed primarily for **Telegram-based OpenClaw workflows**:
