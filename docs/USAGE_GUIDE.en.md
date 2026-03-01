@@ -185,7 +185,7 @@ OCM also supports Discord:
 
 Go to **Agents** → `+ Add Agent` → set **Channel = Discord**:
 
-![](redacted-screenshots/agents-discord-add-agent.jpg)
+![](redacted-screenshots/agents-discord-add-agent.png)
 
 Steps:
 1) Create/select a dedicated Discord **channel** (private recommended)

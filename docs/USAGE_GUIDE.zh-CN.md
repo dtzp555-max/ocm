@@ -168,7 +168,7 @@ OCM 也支持 Discord：
 
 进入 **Agents** → `+ Add Agent` → 选择 **渠道 = Discord**：
 
-![](redacted-screenshots/agents-discord-add-agent.jpg)
+![](redacted-screenshots/agents-discord-add-agent.png)
 
 步骤：
 1) 创建/选择一个专用 Discord Channel（建议私密）
