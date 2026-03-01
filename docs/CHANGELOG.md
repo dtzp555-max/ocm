@@ -2,6 +2,10 @@
 
 This is a user-facing summary derived from `DEVLOG.md`.
 
+## v0.9.0
+- Agents: Telegram + Discord support in Add Agent / Add Sub-Agent wizard (main agent binds channel; sub-agent binds thread).
+- UI: top-center OCM version badge; improved Telegram/Discord setup guides.
+
 ## v0.8.2
 - Docs: reorganize README screenshots into a collapsible gallery to reduce scroll.
 - Docs: add Backups / Rollback screenshot and README feature blurb.
