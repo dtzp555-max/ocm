@@ -2626,6 +2626,12 @@ const I18N = {
     'guide.sub.discord.s3':'Right-click the thread → <b>Copy Link</b>, paste into the form (OCM auto-parses the <code>threadId</code>).',
     'guide.sub.discord.warn':'Important: main agents bind to channels; sub-agents bind to threads. Do not bind sub-agents to normal channels.',
     'wiz.telegramId':'Your Telegram User ID','wiz.telegramIdHint':'💡 Get it from @userinfobot — auto-configures allowFrom whitelist','wiz.telegramIdPh':'e.g. 123456789',
+    'wiz.channel':'Channel',
+    'wiz.discordChannel':'Discord channel link/ID',
+    'wiz.discordChannelHint':'Tip: right-click channel → Copy Link. Paste to auto-parse channelId (optional guildId).',
+    'wiz.discordThread':'Discord thread link/ID (thread only)',
+    'wiz.discordThreadHint':'Tip: create a thread under your main channel → Copy Link. Paste to auto-parse threadId.',
+
     'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
     'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
     'agents.defaultModel':'Use Global Default','agents.custom':'custom','agents.noModel':'Default',
