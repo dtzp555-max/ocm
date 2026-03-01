@@ -60,9 +60,9 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 - **Backups / Rollback** — Browse auto-snapshots of `openclaw.json*` and restore any previous version (current config is auto-backed up first).
 - **Bilingual UI** — English and Chinese interface with one-click language switching.
 
-## What's New (v0.8.x)
+## What's New (v0.9.x)
 
-- **Docs refresh (v0.8.x)**: updated English + Chinese guides and refreshed redacted screenshots.
+- **Discord support (v0.9.x)**: add agent/sub-agent flows for Discord (main agent binds channel; sub-agent binds thread).
 - **README screenshots gallery**: all screenshots are now grouped into one collapsible section to keep the homepage short.
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
 - **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
@@ -206,3 +206,9 @@ bash start.sh --dir /path/to/.openclaw --port 8080
 ```json
 { "dir": "~/.openclaw" }
 ```
+
+
+## Discord (thread-first) notes
+
+- Recommended: keep top-level agents in dedicated channels, and bind sub-agents to **threads** (one thread per task).
+- To switch a Telegram group / Discord thread binding: go to **Routing** → remove the old binding → add a new binding with the new ID/link.

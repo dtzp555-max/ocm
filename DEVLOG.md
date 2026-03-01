@@ -1,9 +1,29 @@
 # OpenClaw Manager — 开发日志
 
-> 最后更新：2026-02-28
-> 当前版本：v0.7.1
+> 最后更新：2026-03-01
+> 当前版本：v0.9.0
 
 ---
+
+
+## v0.9.0 更新日志（2026-03-01）
+
+### New Features
+
+- Agents: Add Agent / Add Sub-Agent 向导支持 Telegram + Discord
+  - Telegram: 传统 group 绑定
+  - Discord: 主 Agent 建议绑定 Channel；Sub-Agent 建议绑定 Thread
+- Routing: 删除绑定提示文案增强（支持“更换 group/thread → 先删旧绑定再加新绑定”）
+
+### UX / UI
+
+- 顶部居中显示醒目的 OCM 版本标识
+- Agents 页面：Agent Tree 支持显示 bindings 概览（Telegram/Discord）并按 parentAgentId 分组
+- Setup Guide：补全 Telegram Allow Groups 步骤；Discord guide 按 channel/thread 经验重写
+
+### Fixes
+
+- 修复 MAIN_HTML_SCRIPT 内联 JS 语法问题（tree toggle / i18n 单引号等），避免启动自检失败
 
 ## Unreleased（2026-02-28）
 
