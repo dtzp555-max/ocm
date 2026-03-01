@@ -423,7 +423,13 @@ async function handleApi(req, res, urlObj, body) {
       // Workspace: explicit per-agent, or defaults.workspace for main
       const workspace = a.workspace || (isMain ? defaultWorkspace : null);
       return { ...a, workspace, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
-        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId };
+        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId, parentAgentId: a.parentAgentId || null, bindings: (bindings||[]).filter(b=>b.agentId===a.id).map(b=>({
+        idx: bindings.indexOf(b),
+        channel: b.match?.channel || '',
+        accountId: b.match?.accountId || '',
+        peerKind: b.match?.peer?.kind || '',
+        peerId: b.match?.peer?.id || ''
+      })) };
     });
     res.writeHead(200);
     res.end(JSON.stringify({ agents: enriched, defaults }));
@@ -508,6 +514,143 @@ async function handleApi(req, res, urlObj, body) {
     return;
   }
 
+  // POST /api/agents/discord — create top-level Discord agent (single bot, channel binding)
+  if (method === 'POST' && pathname === '/api/agents/discord') {
+    const { agentId, name, workspaceFolder, model, purpose, personality, guildId, channelId } = body;
+    if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
+    }
+    if (!name || !name.trim()) { res.writeHead(400); res.end(JSON.stringify({ error: 'Name is required' })); return; }
+    const folder = (workspaceFolder || agentId).trim();
+    if (!folder) { res.writeHead(400); res.end(JSON.stringify({ error: 'Workspace folder is required' })); return; }
+    if (!channelId || !String(channelId).trim().match(/^\d+$/)) { res.writeHead(400); res.end(JSON.stringify({ error: 'Discord channelId is required' })); return; }
+    const gid = (guildId || '').trim();
+
+    const cfg = await readConfig();
+    if (cfg.agents?.list?.some(a => a.id === agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID \"${agentId}\" already exists` })); return;
+    }
+    // Prevent workspace reuse
+    const wsAlias = `~/.openclaw/workspaces/${folder}`;
+    if (cfg.agents?.list?.some(a => (a.workspace||'').endsWith(`/workspaces/${folder}`) || a.workspace === wsAlias)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Workspace folder \"${folder}\" is already used by another agent` })); return;
+    }
+
+    if (!cfg.agents) cfg.agents = { defaults: {}, list: [] };
+    if (!cfg.agents.list) cfg.agents.list = [];
+
+    const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
+    const agentEntry = { id: agentId, name: name || agentId, workspace: wsAlias };
+    if (model && model !== '__default__') agentEntry.model = { primary: model };
+    cfg.agents.list.push(agentEntry);
+
+    if (!cfg.bindings) cfg.bindings = [];
+    cfg.bindings.unshift({ agentId, match: { channel: 'discord', peer: { kind: 'channel', id: String(channelId).trim() } } });
+
+    if (!cfg.channels) cfg.channels = {};
+    if (!cfg.channels.discord) cfg.channels.discord = {};
+    cfg.channels.discord.enabled = true;
+    if (gid) {
+      if (!cfg.channels.discord.guilds) cfg.channels.discord.guilds = {};
+      if (!cfg.channels.discord.guilds[gid]) cfg.channels.discord.guilds[gid] = {};
+      if (!cfg.channels.discord.guilds[gid].channels) cfg.channels.discord.guilds[gid].channels = {};
+      cfg.channels.discord.guilds[gid].channels[String(channelId).trim()] = { allow: true, requireMention: false };
+      if (cfg.channels.discord.guilds[gid].requireMention === undefined) cfg.channels.discord.guilds[gid].requireMention = false;
+    }
+
+    const bakPath = await writeConfig(cfg, 'create');
+
+    await fsp.mkdir(wsPath, { recursive: true });
+    await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
+    await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(name || agentId, purpose || '', personality || ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name || agentId, ''), 'utf8');
+
+    const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
+    await fsp.mkdir(agentRuntimeDir, { recursive: true });
+    await fsp.mkdir(path.join(agentRuntimeDir, 'sessions'), { recursive: true });
+
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
+      notes: [
+        'Discord agent created (single Discord bot)',
+        'Channel binding added',
+        'Workspace + runtime directories created',
+        'Configuration updated and backed up',
+        'Restart gateway to apply: openclaw gateway restart'
+      ]
+    }));
+    return;
+  }
+
+  // POST /api/agents/discord-sub — create Discord sub-agent (thread-only binding, grouping under parentAgentId)
+  if (method === 'POST' && pathname === '/api/agents/discord-sub') {
+    const { agentId, displayName, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, guildId, threadId } = body;
+    if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
+    }
+    if (!parentAgentId || !String(parentAgentId).trim()) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Parent Agent ID is required' })); return;
+    }
+    if (!threadId || !String(threadId).trim().match(/^\d+$/)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Discord threadId is required' })); return;
+    }
+    const gid = (guildId || '').trim();
+
+    const cfg = await readConfig();
+    const parentAgent = cfg.agents?.list?.find(a => a.id === parentAgentId);
+    if (!parentAgent) { res.writeHead(404); res.end(JSON.stringify({ error: `Parent agent \"${parentAgentId}\" does not exist` })); return; }
+    if (cfg.agents?.list?.some(a => a.id === agentId)) { res.writeHead(400); res.end(JSON.stringify({ error: `Agent ID \"${agentId}\" already exists` })); return; }
+
+    const folder = (workspaceFolder || agentId).trim();
+    const wsAlias = `~/.openclaw/workspaces/${folder}`;
+    if (cfg.agents?.list?.some(a => (a.workspace||'').endsWith(`/workspaces/${folder}`) || a.workspace === wsAlias)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: `Workspace folder \"${folder}\" is already used by another agent` })); return;
+    }
+
+    const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
+    const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias, parentAgentId: String(parentAgentId).trim() };
+    if (model && model !== '__default__') agentEntry.model = { primary: model };
+    cfg.agents.list.push(agentEntry);
+
+    if (!cfg.bindings) cfg.bindings = [];
+    cfg.bindings.unshift({ agentId, match: { channel: 'discord', peer: { kind: 'channel', id: String(threadId).trim() } } });
+
+    if (!cfg.channels) cfg.channels = {};
+    if (!cfg.channels.discord) cfg.channels.discord = {};
+    cfg.channels.discord.enabled = true;
+    if (gid) {
+      if (!cfg.channels.discord.guilds) cfg.channels.discord.guilds = {};
+      if (!cfg.channels.discord.guilds[gid]) cfg.channels.discord.guilds[gid] = {};
+      if (!cfg.channels.discord.guilds[gid].channels) cfg.channels.discord.guilds[gid].channels = {};
+      cfg.channels.discord.guilds[gid].channels[String(threadId).trim()] = { allow: true, requireMention: false };
+      if (cfg.channels.discord.guilds[gid].requireMention === undefined) cfg.channels.discord.guilds[gid].requireMention = false;
+    }
+
+    const bakPath = await writeConfig(cfg, 'create');
+
+    await fsp.mkdir(wsPath, { recursive: true });
+    await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
+    const name = displayName || agentId;
+    await fsp.writeFile(path.join(wsPath, 'SOUL.md'),   generateSoulMd(name, purpose || '', personality || ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name, initialMemory || ''), 'utf8');
+
+    const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
+    await fsp.mkdir(agentRuntimeDir, { recursive: true });
+    await fsp.mkdir(path.join(agentRuntimeDir, 'sessions'), { recursive: true });
+
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
+      notes: [
+        'Discord sub-agent created (thread-only binding)',
+        'Workspace + runtime directories created',
+        'Configuration updated and backed up',
+        'Restart gateway to apply: openclaw gateway restart'
+      ]
+    }));
+    return;
+  }
+
+
   // POST /api/agents — create sub-agent (shares parent bot)
   if (method === 'POST' && pathname === '/api/agents') {
     const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, telegramUserId } = body;
@@ -537,7 +680,7 @@ async function handleApi(req, res, urlObj, body) {
     const folder = workspaceFolder || agentId;
     const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
     const wsAlias= `~/.openclaw/workspaces/${folder}`;
-    const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias };
+    const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias, parentAgentId: String(parentAgentId).trim() };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
     cfg.agents.list.push(agentEntry);
     // Binding uses parent's accountId
@@ -1821,6 +1964,7 @@ const MAIN_HTML_BODY = String.raw`
 <header>
   <span class="logo" title="OpenClaw Manager">🦀 OpenClaw</span>
   <span class="ver" id="versionBadge">v--</span>
+  <span class="ver" id="ocmVersionBadge">ocm v--</span>
   <div class="spacer"></div>
   <div id="healthBadge" title="">
     <span id="healthIcon">⚠️</span>
@@ -2281,6 +2425,7 @@ const I18N = {
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ 新建 Subagent',
     'channels.title':'路由绑定','channels.add':'＋ 添加绑定','channels.hint':'用于高级路由管理：维护 Agent 与频道/群组绑定及优先级顺序。日常增减 Agent 请在 Agents 页面操作。',
+    'channels.removeHint':'如果需要更换 Telegram 群或 Discord thread：请先在本页删除旧绑定，然后用新的 ID 重新绑定。也可用于修正绑定错误、群重建（ID 变化）、重复/冲突或临时断开路由。',
     'channels.filterLabel':'Agent','channels.filterAll':'全部 Agent','channels.emptyFiltered':'当前 Agent 下暂无绑定',
     'channels.countSuffix':'条绑定','channels.collapse':'折叠','channels.expand':'展开',
     'models.title':'模型管理','models.primary':'默认主模型','models.fallback':'Fallback 链',
@@ -2401,7 +2546,7 @@ const I18N = {
     'tab.agents':'🤖 Agents','tab.channels':'🧭 Routing','tab.models':'🧠 Models & Auth','tab.auth':'🔑 Auth',
     'tab.stats':'📊 Stats','tab.cron':'⏰ Cron',
     'agents.title':'Agents','agents.new':'＋ New Subagent',
-    'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.','channels.removeHint':'When to use Remove binding: wrong agent/chat, group recreated (new id), duplicates/conflicts, decommission a sub-agent, or temporarily disconnect routing for safety.',
+    'channels.title':'Routing Bindings','channels.add':'＋ Add Binding','channels.hint':'Advanced routing rules for agent-channel/group bindings and priority order. Use Agents page for daily add/remove workflows.','channels.removeHint':'When to use Remove binding: if you need to switch to a new Telegram group / Discord thread, remove the old binding here, then add a new binding with the new ID. Also use this for wrong bindings, recreated groups (new id), duplicates/conflicts, decommissioning, or temporary disconnect.',
     'channels.filterLabel':'Agent','channels.filterAll':'All Agents','channels.emptyFiltered':'No bindings for selected agent',
     'channels.countSuffix':'bindings','channels.collapse':'Collapse','channels.expand':'Expand',
     'models.title':'Model Management','models.primary':'Default Primary Model','models.fallback':'Fallback Chain',
@@ -2594,6 +2739,7 @@ async function checkStatus(){
     setDot('ok');
     document.getElementById('statusTxt').textContent = r.dir.replace(/.*[/\\\\]/,'.../')+' · v'+r.version;
     document.getElementById('versionBadge').textContent = 'v'+r.version;
+    const ov=document.getElementById('ocmVersionBadge'); if(ov) ov.textContent='ocm v'+(r.ocmVersion||'--');
   }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
 }
 
@@ -2755,24 +2901,50 @@ function buildAddAgentForm() {
   const modelOpts = buildModelOpts('__default__');
   return '<div class="add-form">' +
     '<h3>' + t('agents.addAgentTitle') + '</h3>' +
-    '<details class="guide-box" open><summary>' + t('guide.title') + '</summary><ol>' +
-    '<li>' + t('guide.agent.s1') + '</li>' +
-    '<li>' + t('guide.agent.s2') + '</li>' +
-    '<li>' + t('guide.agent.s3') + '</li>' +
-    '<li>' + t('guide.agent.s4') + '</li>' +
+    '<div class="form-group"><label>' + t('wiz.channel') + '</label>' +
+    '<select id="fa-channel" onchange="toggleAddAgentChannel(this.value)">' +
+      '<option value="telegram">Telegram</option>' +
+      '<option value="discord">Discord</option>' +
+    '</select></div>' +
+
+    '<details class="guide-box" open id="fa-guide-telegram"><summary>' + t('guide.title') + '</summary><ol>' +
+      '<li>' + t('guide.agent.s1') + '</li>' +
+      '<li>' + t('guide.agent.s2') + '</li>' +
+      '<li>' + t('guide.agent.s3') + '</li>' +
+      '<li>' + t('guide.agent.s4') + '</li>' +
     '</ol></details>' +
-    '<div class="form-group"><label>' + t('agents.botToken') + '</label>' +
-    '<input id="fa-token" type="text" placeholder="123456:ABC-DEF...">' +
+
+    '<details class="guide-box" open id="fa-guide-discord" style="display:none"><summary>' + t('guide.title') + '</summary><ol>' +
+      '<li>' + t('guide.agent.discord.s1') + '</li>' +
+      '<li>' + t('guide.agent.discord.s2') + '</li>' +
+      '<li>' + t('guide.agent.discord.s3') + '</li>' +
+    '</ol></details>' +
+
+    '<div id="fa-sec-telegram">' +
+      '<div class="form-group"><label>' + t('agents.botToken') + '</label>' +
+      '<input id="fa-token" type="text" placeholder="123456:ABC-DEF...">' +
+      '</div>' +
     '</div>' +
-    '<div class="form-group"><label>Agent ID</label>' +
-    '<input id="fa-agentid" type="text" placeholder="research, alice_bot, etc." pattern="[a-zA-Z0-9_-]+">' +
-    '<span class="hint-text">Alphanumeric, underscore, or dash only</span></div>' +
-    '<div class="form-group"><label>' + t('agents.botName') + '</label>' +
-    '<input id="fa-name" type="text" placeholder="' + t('agents.botNamePh') + '">' +
+
+    '<div class="form-row">' +
+      '<div class="form-group"><label>Agent ID</label>' +
+      '<input id="fa-agentid" type="text" placeholder="research, travel_assistant, etc." pattern="[a-zA-Z0-9_-]+">' +
+      '<span class="hint-text">Alphanumeric, underscore, or dash only</span></div>' +
+      '<div class="form-group"><label>' + t('agents.botName') + '</label>' +
+      '<input id="fa-name" type="text" placeholder="' + t('agents.botNamePh') + '">' +
+      '</div>' +
     '</div>' +
-    '<div class="form-group"><label>Workspace Name</label>' +
-    '<input id="fa-workspace" type="text" placeholder="research, alice_workspace, etc.">' +
+
+    '<div class="form-group"><label>Workspace Folder</label>' +
+    '<input id="fa-workspace" type="text" placeholder="(default = Agent ID)">' +
+    '<span class="hint-text">Each agent must have its own workspace for isolated SOUL/MEMORY.</span></div>' +
+
+    '<div id="fa-sec-discord" style="display:none">' +
+      '<div class="form-group"><label>' + t('wiz.discordChannel') + '</label>' +
+      '<input id="fa-discord-link" type="text" placeholder="https://discord.com/channels/<guildId>/<channelId> or <channelId>">' +
+      '<span class="hint-text">' + t('wiz.discordChannelHint') + '</span></div>' +
     '</div>' +
+
     '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
     '<select id="fa-model">' + modelOpts + '</select>' +
     '</div>' +
@@ -2787,76 +2959,144 @@ function buildAddAgentForm() {
     '</div></div>';
 }
 
-function buildAddSubForm() {
-  // Build parent agent dropdown (agents with their own bot)
+
+function toggleAddAgentChannel(ch){
+  const tg=document.getElementById('fa-sec-telegram');
+  const dg=document.getElementById('fa-sec-discord');
+  const gT=document.getElementById('fa-guide-telegram');
+  const gD=document.getElementById('fa-guide-discord');
+  if(tg) tg.style.display = (ch==='telegram')?'block':'none';
+  if(dg) dg.style.display = (ch==='discord')?'block':'none';
+  if(gT) gT.style.display = (ch==='telegram')?'block':'none';
+  if(gD) gD.style.display = (ch==='discord')?'block':'none';
+}
+function buildAddSubForm(function buildAddSubForm() {
   const cfg = S.agents || [];
-  const botAgents = cfg.filter(a => a.hasOwnBot);
+  // Parent agent dropdown (all agents as potential parent for grouping)
   let parentOpts = '';
-  if (botAgents.length === 0) {
-    parentOpts = '<option value="">No agents with bot available</option>';
-  } else {
-    botAgents.forEach(a => {
-      parentOpts += '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>';
-    });
-  }
+  if (cfg.length === 0) parentOpts = '<option value="">No agents available</option>';
+  else cfg.forEach(a=>{ parentOpts += '<option value="'+esc(a.id)+'">'+esc(a.name||a.id)+'</option>'; });
+
   const modelOpts = buildModelOpts('__default__');
   return '<div class="add-form">' +
     '<h3>' + t('agents.addSubTitle') + '</h3>' +
-    '<details class="guide-box" open><summary>' + t('guide.title') + '</summary><ol>' +
-    '<li>' + t('guide.sub.s1') + '</li>' +
-    '<li>' + t('guide.sub.s2') + '</li>' +
-    '<li>' + t('guide.sub.s3') + '</li>' +
-    '<li>' + t('guide.sub.s4') + '</li>' +
-    '<li>' + t('guide.sub.s5') + '</li>' +
+    '<div class="form-group"><label>' + t('wiz.channel') + '</label>' +
+      '<select id="fs-channel" onchange="toggleAddSubChannel(this.value)">' +
+        '<option value="telegram">Telegram</option>' +
+        '<option value="discord">Discord (thread only)</option>' +
+      '</select>' +
+    '</div>' +
+
+    '<details class="guide-box" open id="fs-guide-telegram"><summary>' + t('guide.title') + '</summary><ol>' +
+      '<li>' + t('guide.sub.s1') + '</li>' +
+      '<li>' + t('guide.sub.s2') + '</li>' +
+      '<li>' + t('guide.sub.s3') + '</li>' +
+      '<li>' + t('guide.sub.s4') + '</li>' +
+      '<li>' + t('guide.sub.s5') + '</li>' +
     '</ol>' +
     '<div style="margin-top:10px;padding:10px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;font-size:13px;line-height:1.5">' + t('guide.sub.warn') + '</div>' +
     '</details>' +
+
+    '<details class="guide-box" open id="fs-guide-discord" style="display:none"><summary>' + t('guide.title') + '</summary><ol>' +
+      '<li>' + t('guide.sub.discord.s1') + '</li>' +
+      '<li>' + t('guide.sub.discord.s2') + '</li>' +
+      '<li>' + t('guide.sub.discord.s3') + '</li>' +
+    '</ol>' +
+    '<div style="margin-top:10px;padding:10px 12px;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.35);border-radius:8px;font-size:13px;line-height:1.5">' + t('guide.sub.discord.warn') + '</div>' +
+    '</details>' +
+
     '<div class="form-group"><label>Parent Agent</label>' +
-    '<select id="fs-parent">' + parentOpts + '</select></div>' +
-    '<div class="form-group"><label>' + t('wiz.groupId') + '</label>' +
-    '<input id="fs-gid" placeholder="-100XXXXXXXXXX">' +
-    '<span class="hint-text">' + t('wiz.groupHint') + '</span></div>' +
-    '<div class="form-group"><label>' + t('wiz.telegramId') + '</label>' +
-    '<input id="fs-tgid" placeholder="' + t('wiz.telegramIdPh') + '">' +
-    '<span class="hint-text">' + t('wiz.telegramIdHint') + '</span></div>' +
+      '<select id="fs-parent">' + parentOpts + '</select>' +
+      '<span class="hint-text">Used for grouping only (Discord sub-agents do not share bots).</span>' +
+    '</div>' +
+
+    '<div id="fs-sec-telegram">' +
+      '<div class="form-group"><label>' + t('wiz.groupId') + '</label>' +
+        '<input id="fs-gid" placeholder="-100XXXXXXXXXX">' +
+        '<span class="hint-text">' + t('wiz.groupHint') + '</span>' +
+      '</div>' +
+      '<div class="form-group"><label>' + t('wiz.telegramId') + '</label>' +
+        '<input id="fs-tgid" placeholder="' + t('wiz.telegramIdPh') + '">' +
+        '<span class="hint-text">' + t('wiz.telegramIdHint') + '</span>' +
+      '</div>' +
+    '</div>' +
+
+    '<div id="fs-sec-discord" style="display:none">' +
+      '<div class="form-group"><label>' + t('wiz.discordThread') + '</label>' +
+        '<input id="fs-discord-link" placeholder="https://discord.com/channels/<guildId>/<threadId> or <threadId>">' +
+        '<span class="hint-text">' + t('wiz.discordThreadHint') + '</span>' +
+      '</div>' +
+    '</div>' +
+
     '<div class="form-row">' +
-    '<div class="form-group"><label>' + t('wiz.agentId') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.agentIdHint') + '</span></label>' +
-    '<input id="fs-aid" placeholder="' + t('wiz.agentIdPh') + '"></div>' +
-    '<div class="form-group"><label>' + t('wiz.displayName') + '</label>' +
-    '<input id="fs-name" placeholder="' + t('wiz.displayNamePh') + '"></div></div>' +
+      '<div class="form-group"><label>' + t('wiz.agentId') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.agentIdHint') + '</span></label>' +
+        '<input id="fs-aid" placeholder="' + t('wiz.agentIdPh') + '"></div>' +
+      '<div class="form-group"><label>' + t('wiz.displayName') + '</label>' +
+        '<input id="fs-name" placeholder="' + t('wiz.displayNamePh') + '"></div>' +
+    '</div>' +
+
+    '<div class="form-group"><label>Workspace Folder</label>' +
+      '<input id="fs-workspace" placeholder="(default = Agent ID)">' +
+      '<span class="hint-text">Each sub-agent must have its own workspace for isolated SOUL/MEMORY.</span>' +
+    '</div>' +
+
     '<div class="form-group"><label>' + t('wiz.model') + '</label>' +
-    '<select id="fs-model">' + modelOpts + '</select></div>' +
+      '<select id="fs-model">' + modelOpts + '</select></div>' +
     '<div class="form-group"><label>' + t('wiz.purpose') + '</label>' +
-    '<textarea id="fs-purpose" placeholder="' + t('wiz.purposePh') + '" rows="2"></textarea></div>' +
+      '<textarea id="fs-purpose" placeholder="' + t('wiz.purposePh') + '" rows="2"></textarea></div>' +
     '<div class="form-group"><label>' + t('wiz.soul') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.soulHint') + '</span></label>' +
-    '<input id="fs-soul" placeholder="' + t('wiz.soulPh') + '"></div>' +
+      '<input id="fs-soul" placeholder="' + t('wiz.soulPh') + '"></div>' +
     '<div class="form-group"><label>' + t('wiz.memory') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.memoryHint') + '</span></label>' +
-    '<textarea id="fs-mem" placeholder="' + t('wiz.memoryPh') + '" rows="2"></textarea></div>' +
+      '<textarea id="fs-mem" placeholder="' + t('wiz.memoryPh') + '" rows="2"></textarea></div>' +
+
     '<div style="display:flex;gap:8px;margin-top:14px">' +
-    '<button class="btn-primary" onclick="submitAddSub()">' + t('agents.addSubSubmit') + '</button>' +
-    '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
+      '<button class="btn-primary" onclick="submitAddSub()">' + t('agents.addSubSubmit') + '</button>' +
+      '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
     '</div></div>';
+}
+
+function toggleAddSubChannel(ch){
+  const tg=document.getElementById('fs-sec-telegram');
+  const dg=document.getElementById('fs-sec-discord');
+  const gT=document.getElementById('fs-guide-telegram');
+  const gD=document.getElementById('fs-guide-discord');
+  if(tg) tg.style.display = (ch==='telegram')?'block':'none';
+  if(dg) dg.style.display = (ch==='discord')?'block':'none';
+  if(gT) gT.style.display = (ch==='telegram')?'block':'none';
+  if(gD) gD.style.display = (ch==='discord')?'block':'none';
 }
 
 // ── Submit Add Agent (with own bot) ──────────────────────────
 async function submitAddAgent() {
-  const token = document.getElementById('fa-token').value.trim();
+  const channel = (document.getElementById('fa-channel')?.value||'telegram').trim();
   const agentId = document.getElementById('fa-agentid').value.trim();
   const name = document.getElementById('fa-name').value.trim();
-  const workspace = document.getElementById('fa-workspace').value.trim();
+  const workspace = (document.getElementById('fa-workspace').value.trim() || agentId);
   const model = document.getElementById('fa-model').value;
   const purpose = (document.getElementById('fa-purpose')?.value||'').trim();
   const personality = (document.getElementById('fa-soul')?.value||'').trim();
-  if (!token) { toast(t('agents.errToken'), 'err'); return; }
+
   if (!agentId) { toast('Agent ID is required', 'err'); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast('Agent ID must contain only alphanumeric characters, underscores, or dashes', 'err'); return; }
   if (!name) { toast(t('agents.errName'), 'err'); return; }
-  if (!workspace) { toast('Workspace name is required', 'err'); return; }
+  if (!workspace) { toast('Workspace folder is required', 'err'); return; }
+
   try {
-    const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model, purpose, personality };
-    const r = await api('POST', '/api/agents/bot', payload);
+    if (channel === 'telegram') {
+      const token = document.getElementById('fa-token').value.trim();
+      if (!token) { toast(t('agents.errToken'), 'err'); return; }
+      const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model, purpose, personality };
+      await api('POST', '/api/agents/bot', payload);
+    } else {
+      const link = (document.getElementById('fa-discord-link')?.value||'').trim();
+      const parsed = parseDiscordLinkOrId(link);
+      if (!parsed) { toast('Discord channel link/ID is required', 'err'); return; }
+      const payload = { agentId, name, workspaceFolder: workspace, model: model === '__default__' ? '' : model, purpose, personality,
+        guildId: parsed.guildId, channelId: parsed.channelId };
+      await api('POST', '/api/agents/discord', payload);
+    }
     toast('Agent created successfully', 'ok');
-    closePopover();
+    clearAddForm();
     showRestartBanner();
     await loadAll();
   } catch (e) {
@@ -2866,25 +3106,39 @@ async function submitAddAgent() {
 
 // ── Submit Add Sub-Agent ────────────────────────────────────
 async function submitAddSub() {
+  const channel = (document.getElementById('fs-channel')?.value||'telegram').trim();
   const parentAgentId = document.getElementById('fs-parent').value.trim();
-  const groupId = document.getElementById('fs-gid').value.trim();
-  const telegramUserId = (document.getElementById('fs-tgid')?.value||'').trim();
   const agentId = document.getElementById('fs-aid').value.trim();
   const displayName = document.getElementById('fs-name').value.trim();
+  const workspaceFolder = (document.getElementById('fs-workspace')?.value||'').trim() || agentId;
   const model = document.getElementById('fs-model').value;
   const purpose = document.getElementById('fs-purpose').value.trim();
   const personality = document.getElementById('fs-soul').value.trim();
   const initialMemory = document.getElementById('fs-mem').value.trim();
+
   if (!parentAgentId) { toast('Parent Agent is required', 'err'); return; }
-  if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
   if (!agentId) { toast(t('wiz.errAgentId'), 'err'); return; }
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast(t('wiz.errIdFormat'), 'err'); return; }
-  if (telegramUserId && !/^\\d+$/.test(telegramUserId)) { toast('Telegram User ID must be a number', 'err'); return; }
+  if (!workspaceFolder) { toast('Workspace folder is required', 'err'); return; }
+
   try {
-    const r = await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId, workspaceFolder: agentId, model: model === '__default__' ? '' : model, purpose, personality, initialMemory, telegramUserId });
-    if (r.error) { toast(r.error, 'err'); return; }
+    if (channel === 'telegram') {
+      const groupId = document.getElementById('fs-gid').value.trim();
+      const telegramUserId = (document.getElementById('fs-tgid')?.value||'').trim();
+      if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
+      if (telegramUserId && !/^\d+$/.test(telegramUserId)) { toast('Telegram User ID must be a number', 'err'); return; }
+      await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId,
+        workspaceFolder, model: model === '__default__' ? '' : model, purpose, personality, initialMemory, telegramUserId });
+    } else {
+      const link = (document.getElementById('fs-discord-link')?.value||'').trim();
+      const parsed = parseDiscordLinkOrId(link);
+      if (!parsed) { toast('Discord thread link/ID is required', 'err'); return; }
+      await api('POST', '/api/agents/discord-sub', { parentAgentId, agentId, displayName: displayName || agentId,
+        workspaceFolder, model: model === '__default__' ? '' : model, purpose, personality, initialMemory,
+        guildId: parsed.guildId, threadId: parsed.channelId });
+    }
     toast(t('wiz.created'), 'ok');
-    document.getElementById('addFormArea').innerHTML = '';
+    clearAddForm();
     showRestartBanner();
     await loadAll();
   } catch (e) { toast(e.message, 'err'); }
@@ -2895,39 +3149,59 @@ function renderAgents() {
   const el = document.getElementById('agentTree');
   if (!S.agents.length) { el.innerHTML = '<div class="empty">' + t('agents.empty') + '</div>'; return; }
 
-  // Build tree: each hasOwnBot agent is a root, others are sub-agents grouped by parentAccountId
-  const roots = S.agents.filter(a => a.hasOwnBot);
-  const subs  = S.agents.filter(a => !a.hasOwnBot);
+  // Build grouping: prefer explicit parentAgentId; fallback to telegram bot-root grouping.
+  const byId = {}; (S.agents||[]).forEach(a=>{ byId[a.id]=a; });
 
-  // Map accountId -> root agent for sub-agent grouping
-  const rootByAccount = {};
-  roots.forEach(a => { if (a.accountId) rootByAccount[a.accountId] = a; });
-
-  // Group subs under their parent
-  const subsByRoot = {};
-  const orphanSubs = [];
-  subs.forEach(a => {
-    const parentAcct = a.parentAccountId;
-    if (parentAcct && rootByAccount[parentAcct]) {
-      const rootId = rootByAccount[parentAcct].id;
-      if (!subsByRoot[rootId]) subsByRoot[rootId] = [];
-      subsByRoot[rootId].push(a);
-    } else {
-      orphanSubs.push(a);
+  // infer parentAgentId for legacy telegram sub-agents if missing
+  const accountToRootId = {};
+  (S.agents||[]).forEach(a=>{ if(a.hasOwnBot && a.accountId) accountToRootId[a.accountId]=a.id; });
+  (S.agents||[]).forEach(a=>{
+    if(!a.parentAgentId && !a.hasOwnBot && a.parentAccountId && accountToRootId[a.parentAccountId]){
+      a._inferParentAgentId = accountToRootId[a.parentAccountId];
     }
   });
 
+  const roots=[]; const childrenByRoot={}; const orphans=[];
+  (S.agents||[]).forEach(a=>{
+    const pid = a.parentAgentId || a._inferParentAgentId || '';
+    if(pid && byId[pid]){
+      (childrenByRoot[pid] ||= []).push(a);
+    } else {
+      roots.push(a);
+    }
+  });
+
+  function fmtBinding(b){
+    const ch = (b.channel||'').toLowerCase();
+    const peer = b.peerId ? String(b.peerId) : '';
+    const acct = b.accountId ? String(b.accountId) : '';
+    if(ch==='telegram'){
+      if(peer) return '<span class="badge ok ch-badge ch-tg">TG</span> <span class="badge ok">'+esc(peer)+'</span>';
+      if(acct) return '<span class="badge ok ch-badge ch-tg">TG Bot</span> <span class="badge">'+esc(acct)+'</span>';
+    }
+    if(ch==='discord'){
+      if(peer) return '<span class="badge ok ch-badge ch-any">Discord</span> <span class="badge">'+esc(peer)+'</span>';
+    }
+    return '<span class="badge">'+esc(ch||'bind')+'</span>';
+  }
+
+  function bindingsLine(a){
+    const arr = (a.bindings||[]).filter(x=>x.peerId||x.accountId);
+    if(!arr.length) return '';
+    return '<div class="tree-meta">🔗 '+arr.map(fmtBinding).join(' · ')+'</div>';
+  }
+
   function agentCard(a, isRoot) {
     let h = '';
-    const icon = isRoot ? '🤖' : '📱';
+    const icon = isRoot ? '🤖' : '🧩';
     const cls  = isRoot ? 'tree-main' : 'tree-child';
     h += '<div class="' + cls + '">';
     h += '<div class="tree-title">' + icon + ' ' + esc(a.name || a.id);
-    if (isRoot) h += ' <span class="badge main">' + (a.id === 'main' ? t('agents.main') : 'Bot') + '</span>';
-    if (a.groupId) h += ' <span class="badge ok">' + esc(a.groupId) + '</span>';
+    if (a.id === 'main') h += ' <span class="badge main">' + t('agents.main') + '</span>';
     h += '</div>';
     h += '<div class="tree-meta">🧠 ' + esc(a.effectiveModel) + '</div>';
     if (a.workspace) h += '<div class="tree-meta">📁 ' + esc(a.workspace) + '</div>';
+    h += bindingsLine(a);
     h += '<div class="tree-actions">';
     h += '<select class="inline-sel" id="msel-' + a.id + '">' + buildModelOpts(a.effectiveModel !== t('agents.noModel') ? a.effectiveModel : '__default__') + '</select>';
     h += '<button class="btn-secondary" data-action="saveModel" data-id="' + esc(a.id) + '">' + t('agents.saveModel') + '</button>';
@@ -2938,34 +3212,23 @@ function renderAgents() {
   }
 
   let html = '<div class="agents-roots">';
-
-  // Render each root with its children, side by side
   roots.forEach(root => {
-    const children = subsByRoot[root.id] || [];
+    const children = childrenByRoot[root.id] || [];
     html += '<div class="agent-tree-root">';
     html += agentCard(root, true);
     if (children.length) {
       const treeId = 'tree-' + root.id;
       html += '<div class="tree-children-wrap">';
-      html += '<button class="tree-toggle" onclick="toggleTree(\\'' + treeId + '\\',this)" title="Expand / Collapse">−</button>';
+      html += '<button class="tree-toggle" onclick="toggleTree('' + treeId + '',this)" title="Expand / Collapse">−</button>';
       html += '<div class="tree-children" id="' + treeId + '">';
       children.forEach(c => { html += agentCard(c, false); });
       html += '</div></div>';
     }
     html += '</div>';
   });
-
-  // Orphan subs (no matching root — edge case)
-  orphanSubs.forEach(a => {
-    html += '<div class="agent-tree-root">';
-    html += agentCard(a, false);
-    html += '</div>';
-  });
-
   html += '</div>';
   el.innerHTML = html;
 
-  // Event delegation for agent tree buttons
   el.onclick = function(ev) {
     const btn = ev.target.closest('[data-action]');
     if (!btn) return;
@@ -2977,7 +3240,7 @@ function renderAgents() {
   };
 }
 
-function toggleTree(treeId, btn) {
+function toggleTreeunction toggleTree(treeId, btn) {
   const el = document.getElementById(treeId);
   if (!el) return;
   el.classList.toggle('collapsed');
@@ -4104,6 +4367,21 @@ function assertBrowserScriptSyntax(name, scriptText) {
       `${name} syntax check failed.\n${detail}\nHint: in MAIN_HTML_SCRIPT strings, write "\\\\n" instead of "\\n".`
     );
   }
+}
+
+
+function parseDiscordLinkOrId(input){
+  const raw=(input||'').trim();
+  if(!raw) return null;
+  // URL form: https://discord.com/channels/<guildId>/<channelId>
+  const m = raw.match(/discord(?:app)?\.com\/channels\/(\d+)\/(\d+)/i);
+  if(m) return { guildId: m[1], channelId: m[2] };
+  // Accept plain numeric id
+  if(/^\d+$/.test(raw)) return { guildId: '', channelId: raw };
+  // Accept channel:<id>
+  const m2 = raw.match(/^channel:(\d+)$/i);
+  if(m2) return { guildId: '', channelId: m2[1] };
+  return null;
 }
 assertBrowserScriptSyntax('main-html-script', MAIN_HTML_SCRIPT);
 

@@ -206,3 +206,9 @@ bash start.sh --dir /path/to/.openclaw --port 8080
 ```json
 { "dir": "~/.openclaw" }
 ```
+
+
+## Discord (thread-first) notes
+
+- Recommended: keep top-level agents in dedicated channels, and bind sub-agents to **threads** (one thread per task).
+- To switch a Telegram group / Discord thread binding: go to **Routing** → remove the old binding → add a new binding with the new ID/link.
