@@ -2621,7 +2621,7 @@ const I18N = {
     'guide.agent.discord.s2':'Right-click the channel → <b>Copy Link</b>, paste it into the form (OCM auto-parses <code>channelId</code>; optional <code>guildId</code>).',
     'guide.agent.discord.s3':'Recommended: bind one main agent per channel to avoid context bleed.',
     'guide.sub.discord.s1':'Discord sub-agent: create a <b>thread</b> under the main channel (one thread per task recommended).',
-    'guide.sub.discord.s2':'If it\'s a private thread, add the bot/agent to the thread (otherwise it cannot read messages).',
+    'guide.sub.discord.s2':'If it is a private thread, add the bot/agent to the thread (otherwise it cannot read messages).',
     'guide.sub.discord.s3':'Right-click the thread → <b>Copy Link</b>, paste into the form (OCM auto-parses the <code>threadId</code>).',
     'guide.sub.discord.warn':'Important: main agents bind to channels; sub-agents bind to threads. Do not bind sub-agents to normal channels.',
     'wiz.telegramId':'Your Telegram User ID','wiz.telegramIdHint':'💡 Get it from @userinfobot — auto-configures allowFrom whitelist','wiz.telegramIdPh':'e.g. 123456789',
