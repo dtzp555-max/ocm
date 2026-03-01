@@ -178,7 +178,7 @@ OCM 也支持 Discord：
 
 进入 **Agents** → `+ Add Sub-Agent` → 选择 **渠道 = Discord (thread only)**：
 
-![](redacted-screenshots/agents-discord-add-subagent.jpg)
+![](redacted-screenshots/agents-discord-add-subagent.png)
 
 步骤：
 1) 在主 Channel 下新建 Thread（建议“一个任务一个 thread”）

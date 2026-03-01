@@ -195,7 +195,7 @@ Steps:
 
 Go to **Agents** → `+ Add Sub-Agent` → set **Channel = Discord (thread only)**:
 
-![](redacted-screenshots/agents-discord-add-subagent.jpg)
+![](redacted-screenshots/agents-discord-add-subagent.png)
 
 Steps:
 1) Create a **thread** under the main channel (one thread per task)
