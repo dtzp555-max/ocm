@@ -155,6 +155,36 @@ OCM 的表单里可以填 “Your Telegram User ID”，让它自动把你的 us
 
 ---
 
+
+
+## 5) Discord 工作流（主 Agent + Sub-Agent）
+
+OCM 也支持 Discord：
+
+- **主 Agent**：绑定到一个专用 **Channel**（channelId）
+- **Sub-Agent**：绑定到该 Channel 下的专用 **Thread**（threadId，thread-first）
+
+### 5.1 添加 Discord 主 Agent
+
+进入 **Agents** → `+ Add Agent` → 选择 **渠道 = Discord**：
+
+![](redacted-screenshots/agents-discord-add-agent.jpg)
+
+步骤：
+1) 创建/选择一个专用 Discord Channel（建议私密）
+2) 右键 Channel → **Copy Link** → 粘贴到表单（自动解析 channelId）
+
+### 5.2 添加 Discord Sub-Agent（Thread 优先）
+
+进入 **Agents** → `+ Add Sub-Agent` → 选择 **渠道 = Discord (thread only)**：
+
+![](redacted-screenshots/agents-discord-add-subagent.jpg)
+
+步骤：
+1) 在主 Channel 下新建 Thread（建议“一个任务一个 thread”）
+2) 如果是 private thread，需要把 bot 拉进 thread
+3) 右键 Thread → **Copy Link** → 粘贴到表单（自动解析 threadId）
+
 ## 5) 绑定检查（Channels 页）
 
 进入 **Channels**：

@@ -172,6 +172,36 @@ If you use `channels.telegram.allowFrom`, OCM can take “Your Telegram User ID�
 
 ---
 
+
+
+## 5) Discord workflow (main agent + sub-agent)
+
+OCM also supports Discord:
+
+- **Main agent**: bind to a dedicated **Channel** (channelId)
+- **Sub-agent**: bind to a dedicated **Thread** under that channel (threadId)
+
+### 5.1 Add a Discord main agent
+
+Go to **Agents** → `+ Add Agent` → set **Channel = Discord**:
+
+![](redacted-screenshots/agents-discord-add-agent.jpg)
+
+Steps:
+1) Create/select a dedicated Discord **channel** (private recommended)
+2) Right-click channel → **Copy Link** → paste into the form (auto-parses channelId)
+
+### 5.2 Add a Discord sub-agent (thread-first)
+
+Go to **Agents** → `+ Add Sub-Agent` → set **Channel = Discord (thread only)**:
+
+![](redacted-screenshots/agents-discord-add-subagent.jpg)
+
+Steps:
+1) Create a **thread** under the main channel (one thread per task)
+2) If it is a private thread, add the bot to the thread
+3) Right-click thread → **Copy Link** → paste into the form (auto-parses threadId)
+
 ## 6) Verify bindings (Channels)
 
 Go to **Channels**:
