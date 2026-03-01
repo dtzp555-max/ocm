@@ -1699,6 +1699,10 @@ header { background:var(--surface); border-bottom:1px solid var(--border); paddi
 .lang-toggle { background:var(--border); border:none; color:var(--muted); border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; }
 .lang-toggle:hover { background:#3a3f5c; color:var(--text); }
 
+/* centered version badge */
+.top-version{ position:absolute; left:50%; transform:translateX(-50%); font-size:12px; font-weight:800; letter-spacing:.3px; color:var(--text); background:rgba(108,99,255,.18); border:1px solid rgba(108,99,255,.45); padding:4px 12px; border-radius:999px; box-shadow:0 6px 18px rgba(0,0,0,.25); }
+.ver-old{ display:none; }
+
 /* dropdown menu */
 .menu-wrap { position:relative; }
 .menu-btn { background:var(--border); border:none; color:var(--text); border-radius:6px; padding:6px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; }
@@ -1963,8 +1967,9 @@ const MAIN_HTML_BODY = String.raw`
 <!-- Header / Toolbar -->
 <header>
   <span class="logo" title="OpenClaw Manager">🦀 OpenClaw</span>
-  <span class="ver" id="versionBadge">v--</span>
-  <span class="ver" id="ocmVersionBadge">ocm v--</span>
+  <div class="top-version" id="topVersion">v--</div>
+  <span class="ver ver-old" id="versionBadge">v--</span>
+  <span class="ver ver-old" id="ocmVersionBadge">ocm v--</span>
   <div class="spacer"></div>
   <div id="healthBadge" title="">
     <span id="healthIcon">⚠️</span>
@@ -2475,7 +2480,8 @@ const I18N = {
     'guide.title':'📖 Setup Guide','guide.agent.s1':'Open Telegram, search for <code>@BotFather</code>',
     'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
     'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
-    'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
+    'guide.agent.s4':'In BotFather: <code>/mybots</code> → select your bot → <b>Bot Settings</b> → <b>Allow Groups</b> → <b>Turn on</b> (allow the bot to join groups)',
+    'guide.agent.s5':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
     'guide.sub.s1':'在 BotFather 发送 <code>/newbot</code> 创建新 Bot，获取 Bot Token',
     'guide.sub.s2':'在 BotFather 发送 <code>/mybots</code> → 选择 Bot → <b>Bot Settings</b> → <b>Group Privacy</b> → <b>Turn off</b>',
     'guide.sub.s3':'在 Telegram 创建新群组，将 Bot 加入群组（<b>不要加其他人</b>）',
@@ -2596,7 +2602,8 @@ const I18N = {
     'guide.title':'📖 Setup Guide','guide.agent.s1':'Open Telegram, search for <code>@BotFather</code>',
     'guide.agent.s2':'Send <code>/newbot</code> and follow prompts to name your Bot',
     'guide.agent.s3':'Copy the <code>Bot Token</code> from BotFather and paste below',
-    'guide.agent.s4':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
+    'guide.agent.s4':'In BotFather: <code>/mybots</code> → select your bot → <b>Bot Settings</b> → <b>Allow Groups</b> → <b>Turn on</b> (allow the bot to join groups)',
+    'guide.agent.s5':'Send <code>/setprivacy</code> → select your Bot → click <code>Disable</code> (allow Bot to read group messages)',
     'guide.sub.s1':'Send <code>/newbot</code> to BotFather to create a new Bot and get the Bot Token',
     'guide.sub.s2':'Send <code>/mybots</code> to BotFather → select your Bot → <b>Bot Settings</b> → <b>Group Privacy</b> → <b>Turn off</b>',
     'guide.sub.s3':'Create a new Telegram group, add the Bot to the group (<b>do NOT add anyone else</b>)',
@@ -2912,6 +2919,7 @@ function buildAddAgentForm() {
       '<li>' + t('guide.agent.s2') + '</li>' +
       '<li>' + t('guide.agent.s3') + '</li>' +
       '<li>' + t('guide.agent.s4') + '</li>' +
+      '<li>' + t('guide.agent.s5') + '</li>' +
     '</ol></details>' +
 
     '<details class="guide-box" open id="fa-guide-discord" style="display:none"><summary>' + t('guide.title') + '</summary><ol>' +
