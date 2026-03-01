@@ -354,6 +354,7 @@ async function handleApi(req, res, urlObj, body) {
         })(),
         primaryModel: cfg.agents?.defaults?.model?.primary || '未配置',
         platform: process.platform,
+        ocmVersion: APP_VERSION,
       }));
     } catch (e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message })); }
     return;
