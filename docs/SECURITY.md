@@ -20,6 +20,27 @@ Critical BotFather settings:
 - Allow Groups = ON
 - Group Privacy = OFF
 
+## Discord safety
+
+Recommended defaults (especially for open-source / shared servers):
+
+- Prefer **private channels / private threads** as agent boundaries.
+- Use a strict **allowlist** of channels/threads the bot is allowed to respond in.
+- Apply **least-privilege** Discord permissions when installing the bot (only what you need).
+- Avoid running memory-enabled agents in public channels.
+
+## Feishu / Lark (飞书) safety
+
+Feishu is enterprise-oriented and typically requires more permission setup:
+
+- Request the smallest permission scope possible for your app/bot.
+- Treat group visibility as a security boundary (who can see the bot’s outputs).
+- Prefer separate chats/spaces for different agents to reduce context bleed.
+
+## WhatsApp note
+
+WhatsApp is not a recommended target for sub-agent topology workflows. Constraints in bot/group automation make reliable multi-agent isolation + routing difficult.
+
 ## Sharing screenshots
 
 If you share screenshots publicly:

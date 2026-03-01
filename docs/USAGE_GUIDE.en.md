@@ -27,11 +27,19 @@ OCM’s role: **a zero-dependency local UI** that helps you view and update Open
 
 ---
 
-## 1) Why Telegram groups are the best way to build sub-agents
+## 1) Recommended: Telegram group workflow (best supported)
 
 Think of it as:
 
 > **One Telegram group = one agent boundary** (context + purpose + workspace).
+
+### Notes for other channels
+
+OCM is expanding beyond Telegram:
+
+- **Discord**: recommended to use **private channels/threads** as boundaries + strict allowlist routing.
+- **Feishu / Lark (飞书)**: supported (Beta); enterprise-oriented setup with stronger permission/visibility considerations.
+- **WhatsApp**: not recommended for sub-agent topology workflows (not supported).
 
 ### Benefits
 

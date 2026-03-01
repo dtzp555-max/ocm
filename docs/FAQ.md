@@ -51,3 +51,13 @@ That said, your local OpenClaw config contains sensitive information. Follow the
 - don't share raw screenshots without redaction
 
 See: `docs/SECURITY.md`.
+
+
+## Q: 为什么 OCM 暂时不支持 WhatsApp 的 sub-agent 工作流？
+
+WhatsApp 在 bot/group 自动化能力上有较多平台限制（接入方式、权限与路由粒度、稳定性等）。
+
+OCM 的 sub-agent 模式依赖清晰的“会话边界 + 路由 + 最小权限”来保证安全和可维护性。
+因此我们目前不把 WhatsApp 作为 sub-agent 的推荐渠道，暂不支持该模式。
+
+如果未来支持 WhatsApp，更可能是 **单聊通知/轻量交互** 方向，而不是多 sub-agent 的群聊拓扑。

@@ -67,6 +67,17 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
 - **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
 - **Telegram-first workflow**: safer sub-agent setup flow + allowlist helper + warnings for group privacy.
+## Channel Support
+
+OCM is a local UI for OpenClaw. The core features (agent trees, routing, models/auth, ops, backups) are channel-agnostic.
+
+Current focus:
+
+- **Telegram** — best supported and most documented today
+- **Discord** — supported (recommended for private channels/threads + strict allowlist)
+- **Feishu / Lark (飞书)** — supported (Beta; enterprise-oriented setup)
+- **WhatsApp** — **not supported for sub-agent workflows** (platform constraints make reliable multi-agent isolation + routing hard)
+
 ## Telegram Workflow & Safety
 
 OCM is designed primarily for **Telegram-based OpenClaw workflows**:
