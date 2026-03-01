@@ -2745,7 +2745,9 @@ async function checkStatus(){
     if(r.needsSetup){ location.reload(); return; }
     setDot('ok');
     document.getElementById('statusTxt').textContent = r.dir.replace(/.*[/\\\\]/,'.../')+' · v'+r.version;
-    document.getElementById('versionBadge').textContent = 'v'+r.version;
+    const tv=document.getElementById('topVersion');
+    if(tv) tv.textContent = 'OCM v'+(r.ocmVersion||'--')+' · OpenClaw v'+r.version;
+    const vb=document.getElementById('versionBadge'); if(vb) vb.textContent = 'v'+r.version;
     const ov=document.getElementById('ocmVersionBadge'); if(ov) ov.textContent='ocm v'+(r.ocmVersion||'--');
   }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
 }
