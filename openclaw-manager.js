@@ -2970,7 +2970,7 @@ function toggleAddAgentChannel(ch){
   if(gT) gT.style.display = (ch==='telegram')?'block':'none';
   if(gD) gD.style.display = (ch==='discord')?'block':'none';
 }
-function buildAddSubForm(function buildAddSubForm() {
+function buildAddSubForm() {
   const cfg = S.agents || [];
   // Parent agent dropdown (all agents as potential parent for grouping)
   let parentOpts = '';
@@ -3219,7 +3219,7 @@ function renderAgents() {
     if (children.length) {
       const treeId = 'tree-' + root.id;
       html += '<div class="tree-children-wrap">';
-      html += '<button class="tree-toggle" onclick="toggleTree('' + treeId + '',this)" title="Expand / Collapse">−</button>';
+      html += '<button class="tree-toggle" data-tree="' + treeId + '" title="Expand / Collapse">−</button>';
       html += '<div class="tree-children" id="' + treeId + '">';
       children.forEach(c => { html += agentCard(c, false); });
       html += '</div></div>';
@@ -3230,6 +3230,9 @@ function renderAgents() {
   el.innerHTML = html;
 
   el.onclick = function(ev) {
+    const tbtn = ev.target.closest('.tree-toggle');
+    if (tbtn && tbtn.dataset.tree) { toggleTree(tbtn.dataset.tree, tbtn); return; }
+
     const btn = ev.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
@@ -3240,7 +3243,7 @@ function renderAgents() {
   };
 }
 
-function toggleTreeunction toggleTree(treeId, btn) {
+function toggleTree(treeId, btn) {
   const el = document.getElementById(treeId);
   if (!el) return;
   el.classList.toggle('collapsed');
