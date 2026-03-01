@@ -1968,7 +1968,7 @@ const MAIN_HTML_BODY = String.raw`
 <header>
   <span class="logo" title="OpenClaw Manager">🦀 OpenClaw</span>
   <div class="top-version" id="topVersion">v--</div>
-  <span class="ver ver-old" id="versionBadge">v--</span>
+  <span class="ver" id="versionBadge">v--</span>
   <span class="ver ver-old" id="ocmVersionBadge">ocm v--</span>
   <div class="spacer"></div>
   <div id="healthBadge" title="">
@@ -2488,6 +2488,13 @@ const I18N = {
     'guide.sub.s4':'在群内发一条消息，从 gateway 日志中找到 <code>peer.id</code>（负数）',
     'guide.sub.s5':'填写下方表单创建 Sub-Agent',
     'guide.sub.warn':'⚠️ 安全提示：请勿将其他人加入此群组，只有你和 Bot 应在群内。否则其他人也能与 Bot 对话并产生 API 费用。',
+    'guide.agent.discord.s1':'Discord 主 Agent：创建/选择一个专用 <b>Channel</b>（建议私密频道）。',
+    'guide.agent.discord.s2':'右键该 Channel → <b>Copy Link</b>，粘贴到表单里（OCM 自动解析 <code>channelId</code>，可选 <code>guildId</code>）。',
+    'guide.agent.discord.s3':'建议：一个 Channel 只绑定一个主 Agent，避免上下文串台。',
+    'guide.sub.discord.s1':'Discord Sub-Agent：在对应主 Channel 下新建一个 <b>Thread</b>（强烈推荐每个任务一个 thread）。',
+    'guide.sub.discord.s2':'如果是 Private Thread：需要把 Bot/Agent 拉进该 thread（否则读不到消息）。',
+    'guide.sub.discord.s3':'右键该 Thread → <b>Copy Link</b>，粘贴到表单里（OCM 自动解析 <code>threadId</code>）。',
+    'guide.sub.discord.warn':'⚠️ 约定：主 Agent 绑定 Channel；Sub-Agent 绑定 Thread。不要把 Sub-Agent 绑到普通 Channel。',
     'wiz.telegramId':'你的 Telegram User ID','wiz.telegramIdHint':'💡 可通过 @userinfobot 获取，填写后自动配置 allowFrom 白名单','wiz.telegramIdPh':'例如: 123456789',
     'agents.empty':'暂无 Agent','agents.main':'主 Agent','agents.bound':'已绑群',
     'agents.saveModel':'保存模型','agents.viewFiles':'查看文件',
@@ -2610,6 +2617,13 @@ const I18N = {
     'guide.sub.s4':'Send a message in the group, find <code>peer.id</code> (negative number) in gateway logs',
     'guide.sub.s5':'Fill in the form below to create the Sub-Agent',
     'guide.sub.warn':'⚠️ Security: Do NOT add other people to this group. Only you and the Bot should be in the group. Otherwise others can chat with the Bot and incur API costs.',
+    'guide.agent.discord.s1':'Discord main agent: create/select a dedicated <b>channel</b> (private recommended).',
+    'guide.agent.discord.s2':'Right-click the channel → <b>Copy Link</b>, paste it into the form (OCM auto-parses <code>channelId</code>; optional <code>guildId</code>).',
+    'guide.agent.discord.s3':'Recommended: bind one main agent per channel to avoid context bleed.',
+    'guide.sub.discord.s1':'Discord sub-agent: create a <b>thread</b> under the main channel (one thread per task recommended).',
+    'guide.sub.discord.s2':'If it\'s a private thread, add the bot/agent to the thread (otherwise it cannot read messages).',
+    'guide.sub.discord.s3':'Right-click the thread → <b>Copy Link</b>, paste into the form (OCM auto-parses the <code>threadId</code>).',
+    'guide.sub.discord.warn':'Important: main agents bind to channels; sub-agents bind to threads. Do not bind sub-agents to normal channels.',
     'wiz.telegramId':'Your Telegram User ID','wiz.telegramIdHint':'💡 Get it from @userinfobot — auto-configures allowFrom whitelist','wiz.telegramIdPh':'e.g. 123456789',
     'agents.empty':'No Agents','agents.main':'Main Agent','agents.bound':'Bound',
     'agents.saveModel':'Save Model','agents.viewFiles':'View Files',
@@ -2746,7 +2760,7 @@ async function checkStatus(){
     setDot('ok');
     document.getElementById('statusTxt').textContent = r.dir.replace(/.*[/\\\\]/,'.../')+' · v'+r.version;
     const tv=document.getElementById('topVersion');
-    if(tv) tv.textContent = 'OCM v'+(r.ocmVersion||'--')+' · OpenClaw v'+r.version;
+    if(tv) tv.textContent = 'OCM v'+(r.ocmVersion||'--');
     const vb=document.getElementById('versionBadge'); if(vb) vb.textContent = 'v'+r.version;
     const ov=document.getElementById('ocmVersionBadge'); if(ov) ov.textContent='ocm v'+(r.ocmVersion||'--');
   }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
