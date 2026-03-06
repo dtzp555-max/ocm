@@ -2,7 +2,7 @@
 
 > Audience: People who already have OpenClaw running locally (you can run `openclaw status` and read `openclaw gateway logs`).
 >
-> Goal: Use **OpenClaw Manager (OCM)** to make agent/sub-agent setup and day-to-day ops **visual, safer, and easier to audit**.
+> Goal: Use **OpenClaw Manager (OCM)** as an **OpenClaw control panel** for agent setup, routing, health checks, built-in CLI, and safer config changes.
 
 ---
 
@@ -60,7 +60,18 @@ Recommended rule:
 
 ---
 
-## 2) Start OCM (macOS)
+## 2) First-run mindset
+
+For new users, the first win is not “configure everything” — it is:
+
+1. Confirm OCM found the right OpenClaw directory
+2. Confirm the gateway is healthy
+3. Confirm you can inspect agents / bindings
+4. Confirm the built-in CLI works
+
+That is why Dashboard + Routing + built-in CLI are the most important first-run surfaces.
+
+## 3) Start OCM (macOS)
 
 From the repo directory:
 
@@ -78,7 +89,7 @@ bash start.sh --host 127.0.0.1
 
 ---
 
-## 3) Dashboard: check health first
+## 4) Dashboard: check health first
 
 The Dashboard is your “sanity check”:
 
@@ -92,11 +103,11 @@ Screenshot:
 
 ---
 
-## 4) Create a main agent (with its own Telegram bot)
+## 5) Create a main agent (with its own Telegram bot)
 
 > Your `main` agent usually exists already. This section is for creating an additional **root agent** that owns its own Telegram bot/account.
 
-### 4.1 BotFather prerequisites
+### 5.1 BotFather prerequisites
 
 1) Create a bot
 - In Telegram, open **BotFather**
@@ -115,7 +126,7 @@ If group privacy is ON, the bot can’t see normal group messages. The symptom o
 - “typing…” appears frequently
 - sometimes no response at all
 
-### 4.2 Add the agent in OCM
+### 5.2 Add the agent in OCM
 
 Go to **Agents**:
 
@@ -132,15 +143,15 @@ OCM writes the agent + Telegram account/binding into `openclaw.json`.
 
 ---
 
-## 5) Create a sub-agent (recommended workflow)
+## 6) Create a sub-agent (recommended workflow)
 
-### 5.1 Why a new group per sub-agent
+### 6.1 Why a new group per sub-agent
 
 - clean context isolation
 - easier debugging
 - easy to “turn off” by muting a group
 
-### 5.2 Step-by-step
+### 6.2 Step-by-step
 
 In **Agents** → `+ Add Sub-Agent`:
 
@@ -174,14 +185,14 @@ If you use `channels.telegram.allowFrom`, OCM can take “Your Telegram User ID�
 
 
 
-## 5) Discord workflow (main agent + sub-agent)
+## 6.5) Discord workflow (main agent + sub-agent)
 
 OCM also supports Discord:
 
 - **Main agent**: bind to a dedicated **Channel** (channelId)
 - **Sub-agent**: bind to a dedicated **Thread** under that channel (threadId)
 
-### 5.1 Add a Discord main agent
+### 6.5.1 Add a Discord main agent
 
 Go to **Agents** → `+ Add Agent` → set **Channel = Discord**:
 
@@ -191,7 +202,7 @@ Steps:
 1) Create/select a dedicated Discord **channel** (private recommended)
 2) Right-click channel → **Copy Link** → paste into the form (auto-parses channelId)
 
-### 5.2 Add a Discord sub-agent (thread-first)
+### 6.5.2 Add a Discord sub-agent (thread-first)
 
 Go to **Agents** → `+ Add Sub-Agent` → set **Channel = Discord (thread only)**:
 
@@ -202,7 +213,7 @@ Steps:
 2) If it is a private thread, add the bot to the thread
 3) Right-click thread → **Copy Link** → paste into the form (auto-parses threadId)
 
-## 6) Verify bindings (Channels)
+## 7) Verify bindings (Channels)
 
 Go to **Channels**:
 
@@ -214,7 +225,7 @@ Here you can quickly validate:
 
 ---
 
-## 7) Model settings (Models)
+## 8) Model settings (Models)
 
 Go to **Models**:
 

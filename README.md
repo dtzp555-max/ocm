@@ -1,6 +1,6 @@
 # OpenClaw Manager (OCM)
 
-A zero-dependency, single-file web dashboard for [OpenClaw](https://github.com/anthropics/openclaw). Manage agents, monitor token usage, and run commands — all from your browser, no `npm install` required.
+A zero-dependency local control panel for [OpenClaw](https://github.com/anthropics/openclaw). Manage agents, bindings, logs, commands, and rollback from your browser — no `npm install` required.
 
 [中文说明](#中文说明) · [中文使用说明（含截图）](docs/USAGE_GUIDE.zh-CN.md) · [English Guide (with screenshots)](docs/USAGE_GUIDE.en.md)
 
@@ -30,6 +30,16 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 - Security notes: docs/SECURITY.md
 - Changelog: docs/CHANGELOG.md
 
+
+## Why OCM
+
+OCM is best thought of as an **OpenClaw control panel**, not just a config editor.
+
+It helps with three things that become painful fast in raw JSON / terminal workflows:
+
+- **Agent topology** — see which agent is bound to which chat/channel/thread
+- **Everyday operations** — run CLI commands, inspect health/logs, restart gateway
+- **Safer changes** — update config with backups and rollback nearby
 
 ## Features
 
@@ -67,7 +77,22 @@ Open [http://localhost:3333](http://localhost:3333) in your browser. For remote 
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
 - **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
 - **Telegram-first workflow**: safer sub-agent setup flow + allowlist helper + warnings for group privacy.
-## Telegram Workflow & Safety
+## Channel Support
+
+OCM is a local UI for OpenClaw. Core features like agent trees, routing, models/auth, ops, backups, and the built-in CLI are channel-agnostic.
+
+Current channel positioning:
+
+- **Telegram** — best supported and most documented today
+- **Discord** — supported; recommended for private channels/threads with strict allowlist
+- **Feishu / Lark** — supported in broader OpenClaw ecosystems, but not a primary OCM workflow today
+- **WhatsApp** — not recommended for sub-agent topology workflows
+
+## Recommended Workflows
+
+OCM is **Telegram-first, not Telegram-only**. Telegram is the smoothest path today, but OCM is also useful for local ops, Discord routing, model/auth management, and backups.
+
+### Telegram Workflow & Safety
 
 OCM is designed primarily for **Telegram-based OpenClaw workflows**:
 
@@ -112,6 +137,18 @@ You can also create `manager-config.json` manually:
 ```
 
 `manager-config.json` is gitignored and won't be committed.
+
+## First-Run Experience
+
+The first thing new users need is confidence that OCM is pointed at the right OpenClaw directory and that the gateway is healthy. The Dashboard, built-in CLI, and health/ops actions are intended to make that first-run check fast and visible.
+
+Recommended first demo flow:
+
+1. Start OCM
+2. Open Dashboard and confirm gateway health
+3. Open Agents / Routing and inspect bindings
+4. Run one CLI command from the built-in terminal
+5. Try backup / rollback from Ops
 
 ## Remote Access
 

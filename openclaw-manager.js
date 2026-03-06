@@ -1979,7 +1979,7 @@ const MAIN_HTML_BODY = String.raw`
   </div>
   <div class="status-row">
     <div class="dot" id="dot"></div>
-    <span class="status-txt" id="statusTxt">连接中...</span>
+    <span class="status-txt" id="statusTxt"></span>
   </div>
   <button class="lang-toggle" onclick="toggleLang()" id="langToggleBtn">EN</button>
   <div class="menu-wrap">
@@ -2470,7 +2470,7 @@ const I18N = {
     'actions.restoreConfirm':'确认将配置恢复为：\\n{filename}\\n\\n当前配置将先被自动备份。继续？',
     'actions.restored':'已恢复 ','actions.restoreFail':'恢复失败: ',
     'actions.setupEmpty':'请填写路径','actions.setupSwitching':'目录已切换，正在刷新...','actions.setupInvalid':'路径无效','actions.setupReqFail':'请求失败: ',
-    'common.loading':'加载中...','common.close':'关闭',
+    'common.loading':'加载中...','common.close':'关闭','status.connecting':'连接中...','status.configReadError':'无法读取配置',
     'btn.save':'保存','btn.delete':'删除','btn.cancel':'取消','btn.add':'添加','btn.remove':'移除',
     'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent','agents.hint':'Add Agent: create a top-level agent (a long-lived role) for a new domain. Add Sub-Agent: create a child under a parent; sub-agents use the parent Telegram bot but have their own workspace + SOUL.md + MEMORY.md, preventing context mixing, improving focus, and saving tokens.',
     'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
@@ -2604,7 +2604,7 @@ const I18N = {
     'actions.restoreConfirm':'Restore config to:\\n{filename}\\n\\nCurrent config will be auto-backed up first. Continue?',
     'actions.restored':'Restored ','actions.restoreFail':'Restore failed: ',
     'actions.setupEmpty':'Please enter a path','actions.setupSwitching':'Directory switched, refreshing...','actions.setupInvalid':'Invalid path','actions.setupReqFail':'Request failed: ',
-    'common.loading':'Loading...','common.close':'Close',
+    'common.loading':'Loading...','common.close':'Close','status.connecting':'Connecting...','status.configReadError':'Unable to read config',
     'btn.save':'Save','btn.delete':'Delete','btn.cancel':'Cancel','btn.add':'Add','btn.remove':'Remove',
     'agents.addAgent':'＋ Add Agent','agents.addSub':'＋ Add Sub-Agent','agents.hint':'Add Agent: create a top-level agent (a long-lived role) for a new domain. Add Sub-Agent: create a child under a parent; sub-agents use the parent Telegram bot but have their own workspace + SOUL.md + MEMORY.md, preventing context mixing, improving focus, and saving tokens.',
     'agents.addAgentTitle':'Add Agent (Main Bot)','agents.addSubTitle':'Add Sub-Agent',
@@ -2707,6 +2707,9 @@ const LS = {
 let lang = LS.get('ocm_lang', 'en');
 function t(k) { return I18N[lang][k] || I18N.zh[k] || k; }
 function applyLang() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  const st = document.getElementById('statusTxt');
+  if(st && (!st.textContent || st.textContent === '连接中...' || st.textContent === 'Connecting...')) st.textContent = t('status.connecting');
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   const ltb = document.getElementById('langToggleBtn');
@@ -2775,7 +2778,7 @@ async function checkStatus(){
     if(tv) tv.textContent = 'OCM v'+(r.ocmVersion||'--');
     const vb=document.getElementById('versionBadge'); if(vb) vb.textContent = 'v'+r.version;
     const ov=document.getElementById('ocmVersionBadge'); if(ov) ov.textContent='ocm v'+(r.ocmVersion||'--');
-  }catch{ setDot('err'); document.getElementById('statusTxt').textContent='无法读取配置'; }
+  }catch{ setDot('err'); document.getElementById('statusTxt').textContent=t('status.configReadError'); }
 }
 
 async function loadAll(){
@@ -4373,7 +4376,7 @@ document.querySelectorAll('.tab').forEach(t=>{
 (function() {
   LS.del('ocm_mode');
   applyLang();
-  checkStatus().then(() => { loadAll(); loadDashboard(); }).catch(e => console.error('Init error:', e));
+  checkStatus().then(() => { loadAll(); setTimeout(() => loadDashboard(), 0); }).catch(e => console.error('Init error:', e));
   startHealthPolling();
 })();`;
 
