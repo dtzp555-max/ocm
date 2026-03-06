@@ -77,6 +77,17 @@ It helps with three things that become painful fast in raw JSON / terminal workf
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
 - **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
 - **Telegram-first workflow**: safer sub-agent setup flow + allowlist helper + warnings for group privacy.
+## Channel Support
+
+OCM is a local UI for OpenClaw. Core features like agent trees, routing, models/auth, ops, backups, and the built-in CLI are channel-agnostic.
+
+Current channel positioning:
+
+- **Telegram** — best supported and most documented today
+- **Discord** — supported; recommended for private channels/threads with strict allowlist
+- **Feishu / Lark** — supported in broader OpenClaw ecosystems, but not a primary OCM workflow today
+- **WhatsApp** — not recommended for sub-agent topology workflows
+
 ## Recommended Workflows
 
 OCM is **Telegram-first, not Telegram-only**. Telegram is the smoothest path today, but OCM is also useful for local ops, Discord routing, model/auth management, and backups.
