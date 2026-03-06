@@ -107,7 +107,7 @@ Screenshot:
 
 > Your `main` agent usually exists already. This section is for creating an additional **root agent** that owns its own Telegram bot/account.
 
-### 4.1 BotFather prerequisites
+### 5.1 BotFather prerequisites
 
 1) Create a bot
 - In Telegram, open **BotFather**
@@ -126,7 +126,7 @@ If group privacy is ON, the bot can’t see normal group messages. The symptom o
 - “typing…” appears frequently
 - sometimes no response at all
 
-### 4.2 Add the agent in OCM
+### 5.2 Add the agent in OCM
 
 Go to **Agents**:
 
@@ -145,13 +145,13 @@ OCM writes the agent + Telegram account/binding into `openclaw.json`.
 
 ## 6) Create a sub-agent (recommended workflow)
 
-### 5.1 Why a new group per sub-agent
+### 6.1 Why a new group per sub-agent
 
 - clean context isolation
 - easier debugging
 - easy to “turn off” by muting a group
 
-### 5.2 Step-by-step
+### 6.2 Step-by-step
 
 In **Agents** → `+ Add Sub-Agent`:
 
@@ -185,14 +185,14 @@ If you use `channels.telegram.allowFrom`, OCM can take “Your Telegram User ID�
 
 
 
-## 5) Discord workflow (main agent + sub-agent)
+## 6.5) Discord workflow (main agent + sub-agent)
 
 OCM also supports Discord:
 
 - **Main agent**: bind to a dedicated **Channel** (channelId)
 - **Sub-agent**: bind to a dedicated **Thread** under that channel (threadId)
 
-### 5.1 Add a Discord main agent
+### 6.5.1 Add a Discord main agent
 
 Go to **Agents** → `+ Add Agent` → set **Channel = Discord**:
 
@@ -202,7 +202,7 @@ Steps:
 1) Create/select a dedicated Discord **channel** (private recommended)
 2) Right-click channel → **Copy Link** → paste into the form (auto-parses channelId)
 
-### 5.2 Add a Discord sub-agent (thread-first)
+### 6.5.2 Add a Discord sub-agent (thread-first)
 
 Go to **Agents** → `+ Add Sub-Agent` → set **Channel = Discord (thread only)**:
 
