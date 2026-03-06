@@ -4376,7 +4376,7 @@ document.querySelectorAll('.tab').forEach(t=>{
 (function() {
   LS.del('ocm_mode');
   applyLang();
-  checkStatus().then(() => { loadAll(); loadDashboard(); }).catch(e => console.error('Init error:', e));
+  checkStatus().then(() => { loadAll(); setTimeout(() => loadDashboard(), 0); }).catch(e => console.error('Init error:', e));
   startHealthPolling();
 })();`;
 
