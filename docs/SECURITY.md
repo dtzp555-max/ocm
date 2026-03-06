@@ -28,3 +28,25 @@ If you share screenshots publicly:
 - blur any tokens/keys if visible
 
 This repo contains **redacted + annotated** screenshots under `docs/annotated-screenshots/`.
+
+
+## Discord safety
+
+Recommended defaults (especially for shared/community servers):
+
+- Prefer **private channels / private threads** as agent boundaries
+- Use a strict **allowlist** of channels/threads the bot may respond in
+- Avoid giving memory-enabled or high-privilege agents broad public exposure
+- Prefer least-privilege Discord permissions for the bot
+
+## Feishu / Lark safety
+
+Feishu is more enterprise-oriented and usually needs stricter permission design:
+
+- Request the smallest permission scope possible
+- Treat chat/group visibility as a security boundary
+- Prefer separate chats/spaces for different agents to reduce context bleed
+
+## WhatsApp note
+
+WhatsApp is not a recommended target for sub-agent topology workflows. Constraints in bot/group automation make reliable multi-agent isolation and routing harder.
