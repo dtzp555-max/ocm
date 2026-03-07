@@ -2030,6 +2030,16 @@ const MAIN_HTML_BODY = String.raw`
       </div>
     </div>
     <div class="dash-gauges" id="dashGauges"><div class="empty">Loading...</div></div>
+    <div class="card dash-notice">
+      <h3 data-i18n="dash.firstRunTitle">🚀 First-run checklist</h3>
+      <ul class="dash-note-list">
+        <li data-i18n="dash.firstRun1">Confirm OCM is pointed at the correct OpenClaw directory.</li>
+        <li data-i18n="dash.firstRun2">Check this Dashboard first: make sure Gateway is running and the system looks healthy.</li>
+        <li data-i18n="dash.firstRun3">Open Agents / Routing and confirm the bindings you expect are actually there.</li>
+        <li data-i18n="dash.firstRun4">Use the built-in Terminal to run <code>openclaw doctor</code> once so you catch environment/auth issues early.</li>
+        <li data-i18n="dash.firstRun5">Before bigger edits, make a backup or check rollback so recovery is nearby if something goes wrong.</li>
+      </ul>
+    </div>
     <div class="dash-sections">
       <div class="card dash-card" id="dashSystem">
         <h3>🖥️ System Info</h3>
@@ -2439,6 +2449,12 @@ const I18N = {
     'models.onlyCliHint':'模型下拉仅显示 openclaw models list 返回的模型。',
     'models.modelListErr':'读取 openclaw models list 失败：',
     'models.modelListEmpty':'未从 openclaw models list 解析到模型。请先运行 openclaw onboard 并确认模型可用。',
+    'dash.firstRunTitle':'🚀 首次使用检查清单',
+    'dash.firstRun1':'先确认 OCM 指向的是正确的 OpenClaw 数据目录。',
+    'dash.firstRun2':'先看 Dashboard：确认 Gateway 正在运行，系统状态看起来正常。',
+    'dash.firstRun3':'打开 Agents / Routing，确认你期望的绑定确实已经存在。',
+    'dash.firstRun4':'用内置终端先运行一次 <code>openclaw doctor</code>，尽早发现环境或认证问题。',
+    'dash.firstRun5':'在做较大改动前，先做一次备份或确认回滚入口，出问题时更容易恢复。',
     'dash.noticeTitle':'📌 Telegram 使用说明（重要）',
     'dash.notice1':'OCM 主要面向 Telegram：通过群组绑定 Agent，让每个 Agent 拥有独立 Workspace / SOUL.md / MEMORY.md。',
     'dash.notice2':'请确保你已有基本 OpenClaw 操作经验。OCM 主要负责可视化更新 openclaw.json，方便增删主 Agent 与 Sub-Agent，并支持多条 Agent 树。',
@@ -2573,6 +2589,12 @@ const I18N = {
     'models.onlyCliHint':'Model dropdowns only show IDs returned by openclaw models list.',
     'models.modelListErr':'Failed to load openclaw models list: ',
     'models.modelListEmpty':'No model IDs were parsed from openclaw models list. Run openclaw onboard first.',
+    'dash.firstRunTitle':'🚀 First-run checklist',
+    'dash.firstRun1':'Confirm OCM is pointed at the correct OpenClaw directory.',
+    'dash.firstRun2':'Check Dashboard first: make sure Gateway is running and the system looks healthy.',
+    'dash.firstRun3':'Open Agents / Routing and confirm the bindings you expect are actually there.',
+    'dash.firstRun4':'Use the built-in Terminal to run <code>openclaw doctor</code> once so you catch environment or auth issues early.',
+    'dash.firstRun5':'Before bigger edits, make a backup or check rollback so recovery is nearby if something goes wrong.',
     'dash.noticeTitle':'📌 Telegram Usage Notes (Important)',
     'dash.notice1':'OCM is primarily for Telegram workflows: bind agents to groups so each agent has isolated Workspace / SOUL.md / MEMORY.md.',
     'dash.notice2':'Basic OpenClaw CLI experience is required. OCM focuses on visual openclaw.json updates for easier main-agent/sub-agent management and multiple agent trees.',
