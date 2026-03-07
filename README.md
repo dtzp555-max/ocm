@@ -56,10 +56,10 @@ OCM gives you a **local control panel** for the things that become painful first
 These are the highest-value surfaces for first-time users:
 
 <p>
-  <img src="docs/redacted-screenshots/dashboard.jpg" width="240" />
-  <img src="docs/redacted-screenshots/agents.jpg" width="240" />
+  <img src="docs/redacted-screenshots-refresh/dashboard-2026-03-07.jpg" width="240" />
+  <img src="docs/redacted-screenshots-refresh/agents-2026-03-07.jpg" width="240" />
   <img src="docs/redacted-screenshots/actions.jpg" width="240" />
-  <img src="docs/redacted-screenshots/cli.jpg" width="240" />
+  <img src="docs/redacted-screenshots-refresh/cli-2026-03-07.jpg" width="240" />
 </p>
 
 More screenshots: see the [full usage guide](docs/USAGE_GUIDE.en.md) or the gallery below.

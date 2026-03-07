@@ -67,7 +67,13 @@ Frame guidance:
 - Cron
 - Stats
 
+## Selected refresh set (2026-03-07)
+- Dashboard: `docs/redacted-screenshots-refresh/dashboard-2026-03-07.jpg`
+- Agents: `docs/redacted-screenshots-refresh/agents-2026-03-07.jpg`
+- CLI: `docs/redacted-screenshots-refresh/cli-2026-03-07.jpg`
+- Keep using existing `docs/redacted-screenshots/actions.jpg` for now
+
 ## Notes
-- Existing `actions.jpg` is already strong and can likely stay for now.
-- Existing `dashboard.jpg` and `agents.jpg` are usable, but can be improved later.
-- Existing `cli.jpg` should ideally be replaced with a real output screenshot.
+- Existing `actions.jpg` is already strong and can stay for now.
+- The new Dashboard and Agents captures are preferred for README hero/overview use.
+- The new CLI capture is preferred because it shows a real command and real output.
