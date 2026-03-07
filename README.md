@@ -143,16 +143,6 @@ The most common reasons OCM feels rough are not usually “the UI is broken”, 
 
 That is why OCM should be thought of as a **control panel for an existing OpenClaw setup**, not a magic replacement for all installation complexity.
 
-## Why OCM is useful anyway
-
-OCM is best thought of as an **OpenClaw control panel**, not just a config editor.
-
-It helps with three things that become painful fast in raw JSON / terminal workflows:
-
-- **Agent topology** — see which agent is bound to which chat/channel/thread
-- **Everyday operations** — run CLI commands, inspect health/logs, restart gateway
-- **Safer changes** — update config with backups and rollback nearby
-
 ## Docs
 
 - **Start here**: docs/USAGE_GUIDE.en.md
