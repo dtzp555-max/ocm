@@ -3908,8 +3908,8 @@ function runCli(){
   es.addEventListener('done',e=>{
     try{
       const d=JSON.parse(e.data);
-      if(d.code===0) cliAppend('\\n✅ 完成 (exit 0)\\n','cli-done-ok');
-      else cliAppend('\\n❌ 退出码 '+d.code+'\\n','cli-done-err');
+      if(d.code===0) cliAppend('\\n✅ Done (exit 0)\\n','cli-done-ok');
+      else cliAppend('\\n❌ Exit code '+d.code+'\\n','cli-done-err');
     }catch(_){}
     es.close(); cliEvt=null; setCliRunning(false);
   });
