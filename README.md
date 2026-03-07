@@ -1,50 +1,71 @@
 # OpenClaw Manager (OCM)
 
-A zero-dependency local control panel for [OpenClaw](https://github.com/anthropics/openclaw). Manage agents, bindings, logs, commands, and rollback from your browser — no `npm install` required.
+A local control panel for [OpenClaw](https://github.com/anthropics/openclaw) that makes setup checks, agent management, health inspection, and recovery much easier — without living in JSON and terminal tabs all day.
 
 [中文说明](#中文说明) · [中文使用说明（含截图）](docs/USAGE_GUIDE.zh-CN.md) · [English Guide (with screenshots)](docs/USAGE_GUIDE.en.md)
 
 ---
 
-## Quick Start
+## Why OCM exists
 
-```bash
-# Clone
-git clone https://github.com/dtzp555-max/ocm.git
-cd ocm
+Running OpenClaw directly is powerful, but the day-to-day workflow can get messy fast:
 
-# Run (no npm install needed)
-bash start.sh        # macOS / Linux
-start.bat            # Windows
+- `openclaw.json` is easy to break by hand
+- agent / bot / channel bindings are hard to visualize
+- health checks, logs, restarts, and rollback are scattered across terminal commands
+- when something goes wrong, recovery is slower than it should be
 
-# Update
-git pull --ff-only
-```
+OCM gives you a **local control panel** for the things that become painful first:
+- seeing your current setup clearly
+- operating it more safely
+- recovering faster when something breaks
 
-Open [http://localhost:3333](http://localhost:3333) in your browser. For remote access, use `bash start.sh --host 0.0.0.0`.
-## Docs
+## Is OCM for you?
 
-- English guide: docs/USAGE_GUIDE.en.md
-- 中文使用说明: docs/USAGE_GUIDE.zh-CN.md
-- FAQ: docs/FAQ.md
-- Security notes: docs/SECURITY.md
-- Changelog: docs/CHANGELOG.md
+**OCM is a good fit if:**
+- you already run OpenClaw locally
+- you want a visual control panel for agents, routing, logs, health, and backups
+- you are tired of editing nested config by hand
+- you want safer rollback / recovery nearby
 
+**OCM is probably not the best starting point if:**
+- you have not installed OpenClaw yet
+- you expect every OS / channel workflow to be equally mature today
+- you want a hosted cloud dashboard instead of a local tool
 
-## Why OCM
+## What OCM helps you do
 
-OCM is best thought of as an **OpenClaw control panel**, not just a config editor.
+### 1) See your OpenClaw setup clearly
+- inspect agents and sub-agents in a tree
+- verify bindings and routing
+- view models, auth, usage, and health in one place
 
-It helps with three things that become painful fast in raw JSON / terminal workflows:
+### 2) Operate OpenClaw with less risk
+- restart gateway
+- inspect logs
+- run OpenClaw commands from the built-in terminal
+- make config changes with rollback nearby
 
-- **Agent topology** — see which agent is bound to which chat/channel/thread
-- **Everyday operations** — run CLI commands, inspect health/logs, restart gateway
-- **Safer changes** — update config with backups and rollback nearby
+### 3) Recover faster when things go wrong
+- browse backups / snapshots
+- roll back config safely
+- keep troubleshooting and operational tools close to the same UI
 
-## Features
+## See it quickly
+
+These are the highest-value surfaces for first-time users:
+
+<p>
+  <img src="docs/redacted-screenshots-refresh/dashboard-2026-03-07.jpg" width="240" />
+  <img src="docs/redacted-screenshots-refresh/agents-2026-03-07.jpg" width="240" />
+  <img src="docs/redacted-screenshots/actions.jpg" width="240" />
+  <img src="docs/redacted-screenshots-refresh/cli-2026-03-07.jpg" width="240" />
+</p>
+
+More screenshots: see the [full usage guide](docs/USAGE_GUIDE.en.md) or the gallery below.
 
 <details>
-<summary><b>Screenshots</b> (redacted: no personal paths, no Telegram IDs)</summary>
+<summary><b>Full screenshots gallery</b> (redacted: no personal paths, no Telegram IDs)</summary>
 
 <p>
   <img src="docs/redacted-screenshots/dashboard.jpg" width="240" />
@@ -62,6 +83,76 @@ It helps with three things that become painful fast in raw JSON / terminal workf
 
 </details>
 
+## Quick Start (recommended path)
+
+```bash
+# Clone
+git clone https://github.com/dtzp555-max/ocm.git
+cd ocm
+
+# Run (no npm install needed)
+bash start.sh        # macOS / Linux
+start.bat            # Windows
+```
+
+Then open [http://localhost:3333](http://localhost:3333).
+
+For remote access, use:
+
+```bash
+bash start.sh --host 0.0.0.0
+```
+
+## First-run checklist
+
+For a good first experience, do these first:
+
+1. Confirm OCM found the correct OpenClaw directory
+2. Open **Dashboard** and check gateway health
+3. Open **Agents** / **Channels** and inspect bindings
+4. Open the built-in **Terminal** and run one OpenClaw command
+5. Check **Actions** / backup / rollback so recovery is nearby before you need it
+
+## Current support status
+
+**Best supported today**
+- macOS / Linux
+- local OpenClaw installations
+- local health / logs / ops / backup workflows
+- Telegram-first agent management workflows
+
+**Supported, but not equally smooth in every case**
+- Discord agent / thread workflows
+- more advanced routing setups
+- mixed environment / service layouts
+
+**Not the primary path today**
+- fully beginner-first OpenClaw onboarding
+- every OS / shell / service combination
+- WhatsApp-heavy sub-agent topology workflows
+
+## Common friction points
+
+The most common reasons OCM feels rough are not usually “the UI is broken”, but environment mismatch:
+
+- OpenClaw itself is not fully healthy yet
+- wrong OpenClaw directory
+- path / permission issues
+- different service/runtime layouts across machines
+- channel workflow differences
+
+That is why OCM should be thought of as a **control panel for an existing OpenClaw setup**, not a magic replacement for all installation complexity.
+
+## Docs
+
+- **Start here**: docs/USAGE_GUIDE.en.md
+- 中文使用说明: docs/USAGE_GUIDE.zh-CN.md
+- FAQ: docs/FAQ.md
+- Security notes: docs/SECURITY.md
+- Changelog: docs/CHANGELOG.md
+
+## Features by area
+
 - **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
 - **Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
 - **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
@@ -73,10 +164,11 @@ It helps with three things that become painful fast in raw JSON / terminal workf
 ## What's New (v0.9.x)
 
 - **Discord support (v0.9.x)**: add agent/sub-agent flows for Discord (main agent binds channel; sub-agent binds thread).
-- **README screenshots gallery**: all screenshots are now grouped into one collapsible section to keep the homepage short.
+- **README screenshots gallery**: screenshots grouped into a collapsible section so the homepage stays shorter.
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
 - **Ops actions**: restart gateway, view logs, health check, backups (local + NAS), and cron management.
 - **Telegram-first workflow**: safer sub-agent setup flow + allowlist helper + warnings for group privacy.
+
 ## Channel Support
 
 OCM is a local UI for OpenClaw. Core features like agent trees, routing, models/auth, ops, backups, and the built-in CLI are channel-agnostic.
@@ -192,7 +284,38 @@ MIT
 
 ## 中文说明
 
-OpenClaw Manager 是一个零依赖的本地 Web 管理界面，用于可视化管理 [OpenClaw](https://github.com/anthropics/openclaw) AI 智能体。所有代码在一个 `.js` 文件中，只需 Node.js 18+，不需要 `npm install`。
+OpenClaw Manager（OCM）是一个本地 OpenClaw 控制面板，用来更直观地管理 Agent、查看绑定关系、做健康检查、运行内置 CLI，并在改配置或排错时少踩坑。
+
+### OCM 解决什么问题
+
+直接使用 OpenClaw 很强，但日常维护很容易变成：
+- 改 `openclaw.json` 容易手滑
+- Agent / bot / 群 / 线程绑定关系很难一眼看清
+- 健康检查、日志、重启、回滚散落在多个终端命令里
+- 出问题时恢复链路不够顺手
+
+OCM 的定位不是替代 OpenClaw，而是给现有 OpenClaw 环境加一个**本地控制台**。
+
+### 适合谁
+
+**适合：**
+- 已经在本机跑通 OpenClaw 的用户
+- 想更直观地管理 Agent / Routing / Health / Logs / Backups 的用户
+- 不想频繁手改复杂 JSON 的用户
+
+**暂时不太适合：**
+- 还没装好 OpenClaw、希望 OCM 包办全部安装复杂度的新手
+- 默认期待所有平台 / 所有 channel 路线都同样成熟的用户
+- 想要云端托管产品而不是本地工具的用户
+
+### OCM 最有价值的三件事
+
+1. **看清你的 OpenClaw 结构**
+   - Agent 树、绑定关系、模型、认证、健康状态更直观
+2. **更安全地做运维操作**
+   - 重启 gateway、看日志、跑 CLI、改配置、回滚更顺手
+3. **出问题时恢复更快**
+   - 备份、回滚、排查入口都更近
 
 ### 快速开始
 
@@ -203,49 +326,33 @@ bash start.sh        # macOS / Linux
 start.bat            # Windows
 ```
 
-访问 [http://localhost:3333](http://localhost:3333)。远程访问请使用 `bash start.sh --host 0.0.0.0`。
+打开 [http://localhost:3333](http://localhost:3333)。
 
-### 功能
+### 第一次使用建议先做这几步
 
-- **Agent 管理** — 添加主 Agent 和子 Agent，树状结构查看，内联切换模型，浏览工作区文件
-- **使用统计** — 从 OpenClaw 会话文件解析真实 Token 用量，按模型/Agent/日期维度展示
-- **模型与认证** — 管理注册模型列表，内置 Provider 认证引导
-- **内置终端** — 实时流式输出，预设命令，收藏夹，Tab 补全
-- **运维面板** — 重启网关、查看日志、健康检查、本地/NAS 备份、Cron 任务管理
-- **双语界面** — 中英文一键切换
+1. 确认 OCM 找到了正确的 OpenClaw 目录
+2. 打开 **Dashboard** 看 gateway 是否健康
+3. 打开 **Agents / Channels** 看绑定是否正确
+4. 打开内置 **Terminal** 跑一条 OpenClaw 命令
+5. 看一眼 **Actions / 备份 / 回滚**，确保恢复路径就在手边
 
-### Telegram 场景与安全提示
+### 当前支持定位
 
-OCM 主要面向 **Telegram 场景**：
+**目前最好用的场景：**
+- macOS / Linux
+- 本地 OpenClaw 环境
+- 本地 health / logs / ops / backup 工作流
+- Telegram-first 的 Agent 管理方式
 
-- 通过群组绑定主 Agent，并在每条树下管理多个 Sub-Agent
-- 让每个 Agent 拥有独立 `workspace`、`SOUL.md`、`MEMORY.md`
-- 通过可视化方式更新 `openclaw.json`，减少手动改配置风险
-- 建议使用者已具备基础 OpenClaw CLI 操作经验（如 `onboard`、认证、查看网关日志）
+**支持，但不保证同样顺滑：**
+- Discord workflow
+- 更复杂的 routing / service 布局
+- 混合环境
 
-关键安全设置（务必确认）：
+### 文档
 
-- BotFather 里 **Allow Groups = ON**
-- BotFather 里 **Group Privacy = OFF**
-- 每个 Agent 群组只保留“你自己 + 对应 Agent/Sub-Agent”
-- 不要邀请其他人进组（会带来安全和 API 费用风险）
-
-### 配置
-
-启动脚本自动检测 `~/.openclaw` 目录。如需指定其他路径：
-
-```bash
-bash start.sh --dir /path/to/.openclaw --port 8080
-```
-
-也可手动创建 `manager-config.json`：
-
-```json
-{ "dir": "~/.openclaw" }
-```
-
-
-## Discord (thread-first) notes
-
-- Recommended: keep top-level agents in dedicated channels, and bind sub-agents to **threads** (one thread per task).
-- To switch a Telegram group / Discord thread binding: go to **Routing** → remove the old binding → add a new binding with the new ID/link.
+- 英文使用说明：docs/USAGE_GUIDE.en.md
+- 中文使用说明：docs/USAGE_GUIDE.zh-CN.md
+- FAQ：docs/FAQ.md
+- 安全说明：docs/SECURITY.md
+- 更新记录：docs/CHANGELOG.md
