@@ -279,6 +279,12 @@ ocm/
 - **Frontend**: Vanilla HTML/CSS/JS embedded in a template literal — no build step, no framework
 - **Architecture**: Single-file, zero-dependency, runs anywhere Node.js runs
 
+## Related Projects
+
+- [clawkeeper](https://github.com/dtzp555-max/clawkeeper) — OpenClaw memory operations kit for doctor / provider switch / backup / restore workflows.
+- [execution-agent-planner](https://github.com/dtzp555-max/execution-agent-planner) — skill for deciding when work should stay with one execution agent or split across specialized workers.
+- [gh-pr-release-flow](https://github.com/dtzp555-max/gh-pr-release-flow) — skill for PR-first GitHub repos where release work should happen after merge.
+
 ## License
 
 MIT
