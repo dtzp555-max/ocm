@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.9.2';
+const APP_VERSION = '0.9.3';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -315,6 +315,28 @@ ${hasMemory ? initialMemory : '> 暂无初始记录。记忆将通过日常对�
 `;
 }
 
+function generateCurrentStateMd() {
+  return `# CURRENT_STATE
+
+_Last updated: TBD Australia/Brisbane_
+
+## In Flight
+- none
+
+## Blocked / Waiting
+- none
+
+## Recently Finished
+- none
+
+## Next
+- none
+
+## Reset Summary
+- No active summary yet.
+`;
+}
+
 // ── 请求解析 ──────────────────────────────────────────────────
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -497,6 +519,7 @@ async function handleApi(req, res, urlObj, body) {
     const agentName = name || agentId;
     await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(agentName, purpose || '', personality || ''), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(agentName, ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'memory', 'CURRENT_STATE.md'), generateCurrentStateMd(), 'utf8');
     // Create agents/<id>/ runtime directory (required by OpenClaw gateway)
     const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
     await fsp.mkdir(agentRuntimeDir, { recursive: true });
@@ -506,7 +529,7 @@ async function handleApi(req, res, urlObj, body) {
       ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
         'Agent created with its own bot token',
-        'Workspace directory created with SOUL.md and MEMORY.md',
+        'Workspace directory created with SOUL.md, MEMORY.md, and memory/CURRENT_STATE.md',
         'Runtime directory created at agents/' + agentId + '/',
         'Configuration updated and backed up',
         'Restart gateway to load new bot: openclaw gateway restart'
@@ -565,6 +588,7 @@ async function handleApi(req, res, urlObj, body) {
     await fsp.mkdir(path.join(wsPath, 'memory'), { recursive: true });
     await fsp.writeFile(path.join(wsPath, 'SOUL.md'), generateSoulMd(name || agentId, purpose || '', personality || ''), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name || agentId, ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'memory', 'CURRENT_STATE.md'), generateCurrentStateMd(), 'utf8');
 
     const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
     await fsp.mkdir(agentRuntimeDir, { recursive: true });
@@ -575,7 +599,7 @@ async function handleApi(req, res, urlObj, body) {
       notes: [
         'Discord agent created (single Discord bot)',
         'Channel binding added',
-        'Workspace + runtime directories created',
+        'Workspace + runtime directories created (including memory/CURRENT_STATE.md)',
         'Configuration updated and backed up',
         'Restart gateway to apply: openclaw gateway restart'
       ]
@@ -634,6 +658,7 @@ async function handleApi(req, res, urlObj, body) {
     const name = displayName || agentId;
     await fsp.writeFile(path.join(wsPath, 'SOUL.md'),   generateSoulMd(name, purpose || '', personality || ''), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name, initialMemory || ''), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'memory', 'CURRENT_STATE.md'), generateCurrentStateMd(), 'utf8');
 
     const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
     await fsp.mkdir(agentRuntimeDir, { recursive: true });
@@ -643,7 +668,7 @@ async function handleApi(req, res, urlObj, body) {
     res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
         'Discord sub-agent created (thread-only binding)',
-        'Workspace + runtime directories created',
+        'Workspace + runtime directories created (including memory/CURRENT_STATE.md)',
         'Configuration updated and backed up',
         'Restart gateway to apply: openclaw gateway restart'
       ]
@@ -707,6 +732,7 @@ async function handleApi(req, res, urlObj, body) {
     const name = displayName || agentId;
     await fsp.writeFile(path.join(wsPath, 'SOUL.md'),   generateSoulMd(name, purpose, personality), 'utf8');
     await fsp.writeFile(path.join(wsPath, 'MEMORY.md'), generateMemoryMd(name, initialMemory), 'utf8');
+    await fsp.writeFile(path.join(wsPath, 'memory', 'CURRENT_STATE.md'), generateCurrentStateMd(), 'utf8');
     // Create agents/<id>/ runtime directory (required by OpenClaw gateway)
     const agentRuntimeDir = path.join(OPENCLAW_DIR, 'agents', agentId);
     await fsp.mkdir(agentRuntimeDir, { recursive: true });
@@ -715,7 +741,7 @@ async function handleApi(req, res, urlObj, body) {
     res.end(JSON.stringify({ ok: true, agentId, workspacePath: wsPath, configBackup: bakPath,
       notes: [
         'Sub-agent created and shares parent bot',
-        'Workspace and runtime directories created',
+        'Workspace and runtime directories created (including memory/CURRENT_STATE.md)',
         'Configuration updated and backed up',
         'Restart gateway to apply: openclaw gateway restart'
       ],
