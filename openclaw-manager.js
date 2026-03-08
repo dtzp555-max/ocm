@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.2';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -2185,6 +2185,7 @@ const MAIN_HTML_BODY = String.raw`
       <select id="cliPreset" onchange="onCliPresetSelect()" style="font-size:11px;padding:3px 6px;max-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
         <option value="" data-i18n="cli.presets">── 常用命令 ──</option>
       </select>
+      <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="copyCliCommand()" data-i18n="cli.copy">复制命令</button>
       <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="clearCliOutput()" data-i18n="cli.clear">清空</button>
       <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="toggleCliPanel()" data-i18n="cli.collapse">▼ 收起</button>
     </div>
@@ -2550,7 +2551,7 @@ const I18N = {
     'ch.peerId':'Peer ID','ch.peerIdHint':'（群组 ID 或用户 ID）','ch.peerIdTip':'留空则匹配所有对应类型的 Peer',
     'ch.submit':'添加绑定',
     'l.sub':'选择运行模式',
-    'cli.open':'⌨️ 终端','cli.title':'⌨️ CLI 终端','cli.clear':'清空','cli.collapse':'▼ 收起',
+    'cli.open':'⌨️ 终端','cli.title':'⌨️ CLI 终端','cli.copy':'复制命令','cli.clear':'清空','cli.collapse':'▼ 收起',
     'cli.ready':'── 终端就绪，等待命令 ──','cli.cleared':'── 已清空 ──',
     'cli.presets':'── 常用命令 ──','cli.builtins':'内置命令','cli.favs':'我的收藏',
     'cli.run':'▶ 执行','cli.stop':'■ 停止','cli.star':'⭐','cli.manage':'管理',
@@ -2691,7 +2692,7 @@ const I18N = {
     'ch.peerId':'Peer ID','ch.peerIdHint':'(Group ID or User ID)','ch.peerIdTip':'Leave blank to match all peers of this type',
     'ch.submit':'Add Binding',
     'l.sub':'Select Mode',
-    'cli.open':'⌨️ Terminal','cli.title':'⌨️ CLI Terminal','cli.clear':'Clear','cli.collapse':'▼ Collapse',
+    'cli.open':'⌨️ Terminal','cli.title':'⌨️ CLI Terminal','cli.copy':'Copy cmd','cli.clear':'Clear','cli.collapse':'▼ Collapse',
     'cli.ready':'── Terminal Ready ──','cli.cleared':'── Cleared ──',
     'cli.presets':'── Presets ──','cli.builtins':'Built-in','cli.favs':'My Favorites',
     'cli.run':'▶ Run','cli.stop':'■ Stop','cli.star':'⭐','cli.manage':'Manage',
@@ -3690,7 +3691,14 @@ async function deleteAuth(key){
 }
 
 function copyText(txt){
-  navigator.clipboard.writeText(txt).then(()=>toast('已复制','success')).catch(()=>toast('复制失败','error'));
+  navigator.clipboard.writeText(txt).then(()=>toast(lang==='en'?'Copied':'已复制','success')).catch(()=>toast(lang==='en'?'Copy failed':'复制失败','error'));
+}
+
+function copyCliCommand(){
+  const inp=document.getElementById('cliInput');
+  const cmd=(inp&&inp.value?inp.value:'').trim();
+  if(!cmd){ toast(lang==='en'?'Nothing to copy (CLI input is empty)':'没有可复制的命令（输入框为空）','error'); return; }
+  copyText(cmd);
 }
 
 
