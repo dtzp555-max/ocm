@@ -1,10 +1,35 @@
 # OpenClaw Manager — 开发日志
 
-> 最后更新：2026-03-01
-> 当前版本：v0.9.0
+> 最后更新：2026-03-17
+> 当前版本：v0.9.4
 
 ---
 
+## v0.9.4 更新日志（2026-03-17）
+
+### New Features
+
+- **Skills & Tools 自动配置**：创建 Agent / Sub-Agent 时自动加载默认 Skills 和 Tool Groups
+  - 默认 Skills：`memory-continuity`, `agent-workflow`, `execution-agent-dispatch`, `session-logs`
+  - 默认 Tool Groups：`group:fs`, `group:runtime`, `group:memory`, `sessions_spawn`, `subagents`
+  - 创建表单新增可折叠的 Skills & Tools 选择面板，支持 checkbox 多选
+  - 提供「仅默认」「全选」「清空」快捷按钮
+  - 不展开 / 不修改则自动使用默认预设，开箱即用
+- 支持的可选 Skills：browser-use, github, gh-issues, coding-agent, execution-agent-planner, discord, weather, summarize, healthcheck
+- 四个创建端点（Telegram Agent/Sub、Discord Agent/Sub）均支持 `skills` + `toolGroups` 字段
+
+### Backend
+
+- 新增 `applySkillsTools()` 服务端辅助函数，统一处理 skills/tools 的默认值回退逻辑
+- `POST /api/agents/bot`、`POST /api/agents/discord`、`POST /api/agents/discord-sub`、`POST /api/agents` 均已适配
+
+### UI
+
+- Skills & Tools Picker：深色风格 checkbox 网格，嵌入创建表单底部
+- 新增专用 CSS 样式（`.skills-picker`、`.sp-grid`、`.sp-item`、`.sp-actions`）
+- 新增 i18n 字符串支持中英文标签
+
+---
 
 ## v0.9.0 更新日志（2026-03-01）
 

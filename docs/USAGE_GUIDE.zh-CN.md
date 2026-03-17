@@ -123,8 +123,9 @@ bash start.sh
 - workspace 路径（建议独立目录）
 - 选择模型（下拉来自 `openclaw models list`，更不容易选错）
 - 填入刚拿到的 bot token
+- **Skills & Tools**（可选）：展开表单底部的折叠面板可自定义。默认预设：Skills 包含 `memory-continuity`、`agent-workflow`、`execution-agent-dispatch`、`session-logs`；Tool Groups 包含 `group:fs`、`group:runtime`、`group:memory`、`sessions_spawn`、`subagents`。提供「仅默认 / 全选 / 清空」快捷按钮。
 
-保存后，OCM 会把这颗主 Agent 写进 `openclaw.json`，并把 bot token 绑定到对应 `accountId`。
+保存后，OCM 会把主 Agent + skills + tools 写进 `openclaw.json`，并把 bot token 绑定到对应 `accountId`。
 
 ---
 
@@ -159,6 +160,7 @@ openclaw gateway logs --follow
 - 填 Group ID
 - workspace（建议单独目录）
 - 选择模型
+- **Skills & Tools**（可选）：和 Add Agent 相同的选择器，默认预设已勾选，展开可自定义
 
 #### Step 4：写 allowlist（推荐）
 如果你启用了 Telegram 的 allowlist（例如 `channels.telegram.allowFrom`），

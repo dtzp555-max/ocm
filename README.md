@@ -156,7 +156,7 @@ That is why OCM should be thought of as a **control panel for an existing OpenCl
 
 ## Features by area
 
-- **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration.
+- **Agent Management** — Add main agents and sub-agents through a guided setup flow. View all agents in a tree structure with model selection, workspace browsing, and inline configuration. New agents automatically get default Skills and Tool Groups, or you can customize them via the built-in Skills & Tools picker.
 - **Usage Statistics** — Real token usage data parsed directly from OpenClaw session files. Breakdown by model, agent, and day with a visual chart.
 - **Model & Auth** — Configure models from your registered provider list. Follow built-in guides for provider authentication setup.
 - **Built-in CLI** — Available from any page (top-right **Terminal** + bottom dock). Run OpenClaw commands with **real-time streaming output**, **Tab completion**, built-in presets, and your own saved favorites.
@@ -166,6 +166,7 @@ That is why OCM should be thought of as a **control panel for an existing OpenCl
 
 ## What's New (v0.9.x)
 
+- **Skills & Tools auto-config (v0.9.4)**: new agents/sub-agents automatically get default Skills (memory-continuity, agent-workflow, execution-agent-dispatch, session-logs) and Tool Groups (fs, runtime, memory, sessions_spawn, subagents). A collapsible Skills & Tools picker in the creation form lets you customize per agent.
 - **Discord support (v0.9.x)**: add agent/sub-agent flows for Discord (main agent binds channel; sub-agent binds thread).
 - **README screenshots gallery**: screenshots grouped into a collapsible section so the homepage stays shorter.
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.

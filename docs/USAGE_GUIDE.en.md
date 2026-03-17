@@ -138,8 +138,9 @@ Click `+ Add Agent` and fill:
 - workspace path (recommended: separate folder per agent)
 - model (dropdown is sourced from `openclaw models list`)
 - the BotFather token
+- **Skills & Tools** (optional): expand the collapsible picker at the bottom to customize. By default, new agents get: `memory-continuity`, `agent-workflow`, `execution-agent-dispatch`, `session-logs` as Skills, and `group:fs`, `group:runtime`, `group:memory`, `sessions_spawn`, `subagents` as Tool Groups. Use the quick-action buttons (Default / All / None) to adjust.
 
-OCM writes the agent + Telegram account/binding into `openclaw.json`.
+OCM writes the agent + Telegram account/binding + skills + tool groups into `openclaw.json`.
 
 ---
 
@@ -176,6 +177,7 @@ Send a message in the new group. In logs you should see something like:
 - paste the Group ID
 - set workspace (recommended: its own folder)
 - choose model
+- **Skills & Tools** (optional): same picker as Add Agent — defaults are pre-selected, expand to customize
 
 **Step 4 — Allowlist (optional but recommended)**
 

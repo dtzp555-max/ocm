@@ -2,6 +2,11 @@
 
 This is a user-facing summary derived from `DEVLOG.md`.
 
+## v0.9.4
+- **Skills & Tools auto-config**: New agents/sub-agents now automatically get default Skills (memory-continuity, agent-workflow, execution-agent-dispatch, session-logs) and Tool Groups (fs, runtime, memory, sessions_spawn, subagents).
+- Agent creation forms include a collapsible Skills & Tools picker with checkbox multi-select and quick-action buttons (Default / All / None).
+- All 4 creation endpoints (Telegram/Discord × Agent/Sub-Agent) support `skills` and `toolGroups` fields.
+
 ## v0.9.0
 - Agents: Telegram + Discord support in Add Agent / Add Sub-Agent wizard (main agent binds channel; sub-agent binds thread).
 - UI: top-center OCM version badge; improved Telegram/Discord setup guides.
