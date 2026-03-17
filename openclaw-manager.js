@@ -428,6 +428,12 @@ async function handleApi(req, res, urlObj, body) {
     );
     // For main agent without explicit binding, infer its accountId from first unclaimed telegram account
     const mainInferredAccountId = telegramAccounts.find(a => !claimedAccounts.has(a)) || telegramAccounts[0] || null;
+    // Build map: agentId -> parentAgentId inferred from subagents.allowAgents
+    const allowAgentsParentMap = {};
+    list.forEach(parent => {
+      const allowed = parent.subagents?.allowAgents || [];
+      allowed.forEach(childId => { if (!allowAgentsParentMap[childId]) allowAgentsParentMap[childId] = parent.id; });
+    });
     const enriched = list.map(a => {
       const binding = bindings.find(b => b.agentId === a.id && b.match?.peer?.kind === 'group');
       const groupId = binding?.match?.peer?.id || null;
@@ -457,7 +463,9 @@ async function handleApi(req, res, urlObj, body) {
       // Workspace: explicit per-agent, or defaults.workspace for main
       const workspace = a.workspace || (isMain ? defaultWorkspace : null);
       return { ...a, workspace, groupId, requireMention: groupId ? (groups[groupId]?.requireMention ?? true) : null,
-        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId, parentAgentId: a.parentAgentId || null, bindings: (bindings||[]).filter(b=>b.agentId===a.id).map(b=>({
+        effectiveModel: modelVal || defaults.model?.primary || '默认', hasOwnBot, accountId, parentAccountId,
+        parentAgentId: a.parentAgentId || (!hasOwnBot ? allowAgentsParentMap[a.id] : null) || null,
+        bindings: (bindings||[]).filter(b=>b.agentId===a.id).map(b=>({
         idx: bindings.indexOf(b),
         channel: b.match?.channel || '',
         accountId: b.match?.accountId || '',
@@ -3361,7 +3369,7 @@ function renderAgents() {
     }
   });
 
-  const roots=[]; const childrenByRoot={}; const orphans=[];
+  const roots=[]; const childrenByRoot={};
   (S.agents||[]).forEach(a=>{
     const pid = a.parentAgentId || a._inferParentAgentId || '';
     if(pid && byId[pid]){
@@ -3369,6 +3377,12 @@ function renderAgents() {
     } else {
       roots.push(a);
     }
+  });
+  // Sort roots: agents with own bot first (main always first among those), then orphans
+  roots.sort((a,b)=>{
+    if(a.id==='main') return -1; if(b.id==='main') return 1;
+    if(a.hasOwnBot && !b.hasOwnBot) return -1; if(!a.hasOwnBot && b.hasOwnBot) return 1;
+    return (a.name||a.id).localeCompare(b.name||b.id);
   });
 
   function fmtBinding(b){
