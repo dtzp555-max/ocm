@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.9.3';
+const APP_VERSION = '0.9.4';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -61,6 +61,17 @@ let CONFIG_PATH  = path.join(OPENCLAW_DIR, 'openclaw.json');
 function refreshPaths() {
   OPENCLAW_DIR = resolveOpenclawDir();
   CONFIG_PATH  = path.join(OPENCLAW_DIR, 'openclaw.json');
+}
+
+// ── Default Skills & Tool Groups for new agents ─────────────
+const DEFAULT_SKILLS = ['memory-continuity', 'agent-workflow', 'execution-agent-dispatch', 'session-logs'];
+const DEFAULT_TOOL_GROUPS = ['group:fs', 'group:runtime', 'group:memory', 'sessions_spawn', 'subagents'];
+
+function applySkillsTools(agentEntry, skills, toolGroups) {
+  const s = (Array.isArray(skills) && skills.length > 0) ? skills : DEFAULT_SKILLS;
+  const tg = (Array.isArray(toolGroups) && toolGroups.length > 0) ? toolGroups : DEFAULT_TOOL_GROUPS;
+  agentEntry.skills = s;
+  agentEntry.tools = { alsoAllow: tg };
 }
 
 // ── 已知模型列表 ──────────────────────────────────────────────
@@ -461,7 +472,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents/bot — create agent with its own bot token
   if (method === 'POST' && pathname === '/api/agents/bot') {
-    const { botToken, agentId, name, model, workspace, purpose, personality } = body;
+    const { botToken, agentId, name, model, workspace, purpose, personality, skills, toolGroups } = body;
     if (!botToken || !botToken.trim()) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Bot Token is required' })); return;
     }
@@ -507,6 +518,7 @@ async function handleApi(req, res, urlObj, body) {
     const wsAlias = `~/.openclaw/workspaces/${workspace}`;
     const agentEntry = { id: agentId, name: name || agentId, workspace: wsAlias };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
+    applySkillsTools(agentEntry, skills, toolGroups);
     cfg.agents.list.push(agentEntry);
     // Add binding
     if (!cfg.bindings) cfg.bindings = [];
@@ -540,7 +552,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents/discord — create top-level Discord agent (single bot, channel binding)
   if (method === 'POST' && pathname === '/api/agents/discord') {
-    const { agentId, name, workspaceFolder, model, purpose, personality, guildId, channelId } = body;
+    const { agentId, name, workspaceFolder, model, purpose, personality, guildId, channelId, skills, toolGroups } = body;
     if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
     }
@@ -566,6 +578,7 @@ async function handleApi(req, res, urlObj, body) {
     const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
     const agentEntry = { id: agentId, name: name || agentId, workspace: wsAlias };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
+    applySkillsTools(agentEntry, skills, toolGroups);
     cfg.agents.list.push(agentEntry);
 
     if (!cfg.bindings) cfg.bindings = [];
@@ -609,7 +622,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents/discord-sub — create Discord sub-agent (thread-only binding, grouping under parentAgentId)
   if (method === 'POST' && pathname === '/api/agents/discord-sub') {
-    const { agentId, displayName, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, guildId, threadId } = body;
+    const { agentId, displayName, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, guildId, threadId, skills, toolGroups } = body;
     if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
     }
@@ -635,6 +648,7 @@ async function handleApi(req, res, urlObj, body) {
     const wsPath = path.join(OPENCLAW_DIR, 'workspaces', folder);
     const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias, parentAgentId: String(parentAgentId).trim() };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
+    applySkillsTools(agentEntry, skills, toolGroups);
     cfg.agents.list.push(agentEntry);
 
     if (!cfg.bindings) cfg.bindings = [];
@@ -679,7 +693,7 @@ async function handleApi(req, res, urlObj, body) {
 
   // POST /api/agents — create sub-agent (shares parent bot)
   if (method === 'POST' && pathname === '/api/agents') {
-    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, telegramUserId } = body;
+    const { agentId, displayName, groupId, workspaceFolder, model, purpose, personality, initialMemory, parentAgentId, telegramUserId, skills, toolGroups } = body;
     if (!agentId || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Agent ID must contain only alphanumeric characters, underscores, or dashes' })); return;
     }
@@ -708,6 +722,7 @@ async function handleApi(req, res, urlObj, body) {
     const wsAlias= `~/.openclaw/workspaces/${folder}`;
     const agentEntry = { id: agentId, name: displayName || agentId, workspace: wsAlias, parentAgentId: String(parentAgentId).trim() };
     if (model && model !== '__default__') agentEntry.model = { primary: model };
+    applySkillsTools(agentEntry, skills, toolGroups);
     cfg.agents.list.push(agentEntry);
     // Binding uses parent's accountId
     const parentAccountId = parentBinding.match.accountId;
@@ -1726,6 +1741,19 @@ header { background:var(--surface); border-bottom:1px solid var(--border); paddi
 .lang-toggle { background:var(--border); border:none; color:var(--muted); border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer; }
 .lang-toggle:hover { background:#3a3f5c; color:var(--text); }
 
+/* skills/tools picker */
+.skills-picker { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-top:4px; }
+.skills-picker summary { font-size:13px; font-weight:600; cursor:pointer; color:var(--text); user-select:none; }
+.skills-picker summary:hover { color:var(--accent); }
+.skills-picker .sp-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-top:8px; }
+.skills-picker label.sp-item { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); cursor:pointer; padding:3px 0; }
+.skills-picker label.sp-item:hover { color:var(--text); }
+.skills-picker label.sp-item input[type=checkbox] { accent-color:var(--accent); width:14px; height:14px; }
+.skills-picker .sp-actions { display:flex; gap:8px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+.skills-picker .sp-actions button { font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--muted); cursor:pointer; }
+.skills-picker .sp-actions button:hover { color:var(--text); border-color:var(--accent); }
+.sp-section-title { font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; margin:8px 0 4px; grid-column:1/-1; }
+
 /* centered version badge */
 .top-version{ position:absolute; left:50%; transform:translateX(-50%); font-size:12px; font-weight:800; letter-spacing:.3px; color:var(--text); background:rgba(108,99,255,.18); border:1px solid rgba(108,99,255,.45); padding:4px 12px; border-radius:999px; box-shadow:0 6px 18px rgba(0,0,0,.25); }
 .ver-old{ display:none; }
@@ -2564,6 +2592,9 @@ const I18N = {
     'wiz.soul':'性格关键词','wiz.soulHint':'（逗号分隔，选填）','wiz.soulPh':'幽默、直接、有条理...',
     'wiz.soulTip':'留空则使用默认成长型提示词（推荐）',
     'wiz.memory':'初始记忆','wiz.memoryHint':'（MEMORY.md，选填）','wiz.memoryPh':'例如：群组主要用中文交流。用户偏好简洁回复。',
+    'wiz.skillsTools':'Skills & Tools 配置','wiz.skillsHint':'不选择则使用默认预设（推荐）',
+    'wiz.skillsSection':'Skills（能力）','wiz.toolsSection':'Tool Groups（权限）',
+    'wiz.spSelectDefault':'仅默认','wiz.spSelectAll':'全选','wiz.spSelectNone':'清空',
     'wiz.preview':'即将创建：','wiz.group':'群组','wiz.modelLabel':'模型','wiz.globalDefault':'全局默认',
     'wiz.soulYes':'含性格关键词','wiz.soulDefault':'默认成长型提示词（推荐）',
     'wiz.autoBackup':'自动备份当前 openclaw.json ✓',
@@ -2984,6 +3015,78 @@ function showAddForm(type) {
   applyLang();
 }
 
+// ── Skills / Tools picker helper ──────────────────────────
+const AVAILABLE_SKILLS = [
+  { id:'memory-continuity', label:'Memory Continuity', isDefault:true },
+  { id:'agent-workflow', label:'Agent Workflow', isDefault:true },
+  { id:'execution-agent-dispatch', label:'Execution Dispatch', isDefault:true },
+  { id:'session-logs', label:'Session Logs', isDefault:true },
+  { id:'browser-use', label:'Browser Use', isDefault:false },
+  { id:'github', label:'GitHub', isDefault:false },
+  { id:'gh-issues', label:'GitHub Issues', isDefault:false },
+  { id:'coding-agent', label:'Coding Agent', isDefault:false },
+  { id:'execution-agent-planner', label:'Execution Planner', isDefault:false },
+  { id:'discord', label:'Discord', isDefault:false },
+  { id:'weather', label:'Weather', isDefault:false },
+  { id:'summarize', label:'Summarize', isDefault:false },
+  { id:'healthcheck', label:'Healthcheck', isDefault:false },
+];
+const AVAILABLE_TOOL_GROUPS = [
+  { id:'group:fs', label:'Filesystem (group:fs)', isDefault:true },
+  { id:'group:runtime', label:'Runtime (group:runtime)', isDefault:true },
+  { id:'group:memory', label:'Memory (group:memory)', isDefault:true },
+  { id:'sessions_spawn', label:'Sessions Spawn', isDefault:true },
+  { id:'subagents', label:'Subagents', isDefault:true },
+];
+
+function buildSkillsToolsPicker(prefix) {
+  let html = '<details class="skills-picker" id="'+prefix+'-sp-wrap"><summary>' + t('wiz.skillsTools') + ' <span style="color:var(--muted);font-weight:400;font-size:12px">' + t('wiz.skillsHint') + '</span></summary>';
+  html += '<div class="sp-section-title">' + t('wiz.skillsSection') + '</div>';
+  html += '<div class="sp-grid">';
+  AVAILABLE_SKILLS.forEach(s => {
+    html += '<label class="sp-item"><input type="checkbox" data-sp-type="skill" value="'+s.id+'" '+(s.isDefault?'checked':'')+'>'+s.label+'</label>';
+  });
+  html += '</div>';
+  html += '<div class="sp-section-title">' + t('wiz.toolsSection') + '</div>';
+  html += '<div class="sp-grid">';
+  AVAILABLE_TOOL_GROUPS.forEach(g => {
+    html += '<label class="sp-item"><input type="checkbox" data-sp-type="tool" value="'+g.id+'" '+(g.isDefault?'checked':'')+'>'+g.label+'</label>';
+  });
+  html += '</div>';
+  html += '<div class="sp-actions">';
+  html += '<button type="button" onclick="spAction(\\x27'+prefix+'\\x27,\\x27default\\x27)">' + t('wiz.spSelectDefault') + '</button>';
+  html += '<button type="button" onclick="spAction(\\x27'+prefix+'\\x27,\\x27all\\x27)">' + t('wiz.spSelectAll') + '</button>';
+  html += '<button type="button" onclick="spAction(\\x27'+prefix+'\\x27,\\x27none\\x27)">' + t('wiz.spSelectNone') + '</button>';
+  html += '</div></details>';
+  return html;
+}
+
+function spAction(prefix, action) {
+  const wrap = document.getElementById(prefix+'-sp-wrap');
+  if (!wrap) return;
+  const boxes = wrap.querySelectorAll('input[type=checkbox]');
+  if (action==='none') { boxes.forEach(b=>b.checked=false); return; }
+  if (action==='all') { boxes.forEach(b=>b.checked=true); return; }
+  // default
+  const defSkills = AVAILABLE_SKILLS.filter(s=>s.isDefault).map(s=>s.id);
+  const defTools = AVAILABLE_TOOL_GROUPS.filter(g=>g.isDefault).map(g=>g.id);
+  boxes.forEach(b=>{
+    if (b.dataset.spType==='skill') b.checked = defSkills.includes(b.value);
+    else b.checked = defTools.includes(b.value);
+  });
+}
+
+function collectSkillsTools(prefix) {
+  const wrap = document.getElementById(prefix+'-sp-wrap');
+  if (!wrap) return { skills:[], toolGroups:[] };
+  const skills = []; const toolGroups = [];
+  wrap.querySelectorAll('input[type=checkbox]:checked').forEach(b=>{
+    if (b.dataset.spType==='skill') skills.push(b.value);
+    else toolGroups.push(b.value);
+  });
+  return { skills, toolGroups };
+}
+
 function buildAddAgentForm() {
   const modelOpts = buildModelOpts('__default__');
   return '<div class="add-form">' +
@@ -3041,6 +3144,7 @@ function buildAddAgentForm() {
     '<div class="form-group"><label>' + t('wiz.soul') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.soulHint') + '</span></label>' +
     '<input id="fa-soul" placeholder="' + t('wiz.soulPh') + '">' +
     '<span class="hint-text">' + t('wiz.soulTip') + '</span></div>' +
+    '<div class="form-group">' + buildSkillsToolsPicker('fa') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:14px">' +
     '<button class="btn-primary" onclick="submitAddAgent()">' + t('agents.addAgentSubmit') + '</button>' +
     '<button class="btn-ghost" onclick="clearAddForm()">' + t('btn.cancel') + '</button>' +
@@ -3136,6 +3240,7 @@ function buildAddSubForm() {
       '<input id="fs-soul" placeholder="' + t('wiz.soulPh') + '"></div>' +
     '<div class="form-group"><label>' + t('wiz.memory') + ' <span style="color:var(--muted);font-weight:400">' + t('wiz.memoryHint') + '</span></label>' +
       '<textarea id="fs-mem" placeholder="' + t('wiz.memoryPh') + '" rows="2"></textarea></div>' +
+    '<div class="form-group">' + buildSkillsToolsPicker('fs') + '</div>' +
 
     '<div style="display:flex;gap:8px;margin-top:14px">' +
       '<button class="btn-primary" onclick="submitAddSub()">' + t('agents.addSubSubmit') + '</button>' +
@@ -3169,18 +3274,20 @@ async function submitAddAgent() {
   if (!name) { toast(t('agents.errName'), 'err'); return; }
   if (!workspace) { toast('Workspace folder is required', 'err'); return; }
 
+  const { skills, toolGroups } = collectSkillsTools('fa');
+
   try {
     if (channel === 'telegram') {
       const token = document.getElementById('fa-token').value.trim();
       if (!token) { toast(t('agents.errToken'), 'err'); return; }
-      const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model, purpose, personality };
+      const payload = { botToken: token, agentId, name, workspace, model: model === '__default__' ? '' : model, purpose, personality, skills, toolGroups };
       await api('POST', '/api/agents/bot', payload);
     } else {
       const link = (document.getElementById('fa-discord-link')?.value||'').trim();
       const parsed = parseDiscordLinkOrId(link);
       if (!parsed) { toast('Discord channel link/ID is required', 'err'); return; }
       const payload = { agentId, name, workspaceFolder: workspace, model: model === '__default__' ? '' : model, purpose, personality,
-        guildId: parsed.guildId, channelId: parsed.channelId };
+        guildId: parsed.guildId, channelId: parsed.channelId, skills, toolGroups };
       await api('POST', '/api/agents/discord', payload);
     }
     toast('Agent created successfully', 'ok');
@@ -3209,6 +3316,8 @@ async function submitAddSub() {
   if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) { toast(t('wiz.errIdFormat'), 'err'); return; }
   if (!workspaceFolder) { toast('Workspace folder is required', 'err'); return; }
 
+  const { skills, toolGroups } = collectSkillsTools('fs');
+
   try {
     if (channel === 'telegram') {
       const groupId = document.getElementById('fs-gid').value.trim();
@@ -3216,14 +3325,14 @@ async function submitAddSub() {
       if (!groupId) { toast(t('wiz.errGroupId'), 'err'); return; }
       if (telegramUserId && !/^\d+$/.test(telegramUserId)) { toast('Telegram User ID must be a number', 'err'); return; }
       await api('POST', '/api/agents', { parentAgentId, agentId, displayName: displayName || agentId, groupId,
-        workspaceFolder, model: model === '__default__' ? '' : model, purpose, personality, initialMemory, telegramUserId });
+        workspaceFolder, model: model === '__default__' ? '' : model, purpose, personality, initialMemory, telegramUserId, skills, toolGroups });
     } else {
       const link = (document.getElementById('fs-discord-link')?.value||'').trim();
       const parsed = parseDiscordLinkOrId(link);
       if (!parsed) { toast('Discord thread link/ID is required', 'err'); return; }
       await api('POST', '/api/agents/discord-sub', { parentAgentId, agentId, displayName: displayName || agentId,
         workspaceFolder, model: model === '__default__' ? '' : model, purpose, personality, initialMemory,
-        guildId: parsed.guildId, threadId: parsed.channelId });
+        guildId: parsed.guildId, threadId: parsed.channelId, skills, toolGroups });
     }
     toast(t('wiz.created'), 'ok');
     clearAddForm();
