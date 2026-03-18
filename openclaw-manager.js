@@ -3360,12 +3360,20 @@ function renderAgents() {
   // Build grouping: prefer explicit parentAgentId; fallback to telegram bot-root grouping.
   const byId = {}; (S.agents||[]).forEach(a=>{ byId[a.id]=a; });
 
-  // infer parentAgentId for legacy telegram sub-agents if missing
+  // infer parentAgentId for sub-agents if missing
   const accountToRootId = {};
   (S.agents||[]).forEach(a=>{ if(a.hasOwnBot && a.accountId) accountToRootId[a.accountId]=a.id; });
   (S.agents||[]).forEach(a=>{
-    if(!a.parentAgentId && !a.hasOwnBot && a.parentAccountId && accountToRootId[a.parentAccountId]){
+    if(a.parentAgentId || a.hasOwnBot || a.id === 'main') return; // already resolved or is a root
+    // Case 1: legacy telegram sub-agent with parentAccountId
+    if(a.parentAccountId && accountToRootId[a.parentAccountId]){
       a._inferParentAgentId = accountToRootId[a.parentAccountId];
+      return;
+    }
+    // Case 2: orphan agent (no own bot, no parentAgentId, no binding-based inference)
+    // These are likely dynamically created sub-agents — default to 'main'
+    if(byId['main']){
+      a._inferParentAgentId = 'main';
     }
   });
 
