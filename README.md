@@ -166,7 +166,7 @@ That is why OCM should be thought of as a **control panel for an existing OpenCl
 
 ## What's New (v0.9.x)
 
-- **Skills & Tools auto-config (v0.9.4)**: new agents/sub-agents automatically get default Skills (memory-continuity, agent-workflow, execution-agent-dispatch, session-logs) and Tool Groups (fs, runtime, memory, sessions_spawn, subagents). A collapsible Skills & Tools picker in the creation form lets you customize per agent.
+- **Skills & Tools auto-config**: new agents/sub-agents automatically get default Skills (`memory-continuity`, `session-logs`) and Tool Groups (`fs`, `runtime`, `memory`, `sessions_spawn`, `subagents`). A collapsible Skills & Tools picker in the creation form lets you customize per agent.
 - **Discord support (v0.9.x)**: add agent/sub-agent flows for Discord (main agent binds channel; sub-agent binds thread).
 - **README screenshots gallery**: screenshots grouped into a collapsible section so the homepage stays shorter.
 - **Built-in CLI terminal**: run OpenClaw commands from any page with streaming output, presets, favorites, and Tab completion.
@@ -282,8 +282,8 @@ ocm/
 
 ## Related Projects
 
-- [clawkeeper](https://github.com/dtzp555-max/clawkeeper) — OpenClaw memory operations kit for doctor / provider switch / backup / restore workflows.
-- [execution-agent-planner](https://github.com/dtzp555-max/execution-agent-planner) — skill for deciding when work should stay with one execution agent or split across specialized workers.
+- [clawkeeper](https://github.com/dtzp555-max/clawkeeper) — OpenClaw memory operations kit for doctor / provider switch / backup / restore workflows. *(archived)*
+- [execution-agent-planner](https://github.com/dtzp555-max/execution-agent-planner) — archived planning skill for deciding when work should stay with one execution agent or split across specialized workers.
 - [gh-pr-release-flow](https://github.com/dtzp555-max/gh-pr-release-flow) — skill for PR-first GitHub repos where release work should happen after merge.
 
 ## License

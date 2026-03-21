@@ -64,7 +64,7 @@ function refreshPaths() {
 }
 
 // ── Default Skills & Tool Groups for new agents ─────────────
-const DEFAULT_SKILLS = ['memory-continuity', 'agent-workflow', 'execution-agent-dispatch', 'session-logs'];
+const DEFAULT_SKILLS = ['memory-continuity', 'session-logs'];
 const DEFAULT_TOOL_GROUPS = ['group:fs', 'group:runtime', 'group:memory', 'sessions_spawn', 'subagents'];
 
 function applySkillsTools(agentEntry, skills, toolGroups) {
@@ -3029,14 +3029,11 @@ function showAddForm(type) {
 // ── Skills / Tools picker helper ──────────────────────────
 const AVAILABLE_SKILLS = [
   { id:'memory-continuity', label:'Memory Continuity', isDefault:true },
-  { id:'agent-workflow', label:'Agent Workflow', isDefault:true },
-  { id:'execution-agent-dispatch', label:'Execution Dispatch', isDefault:true },
   { id:'session-logs', label:'Session Logs', isDefault:true },
   { id:'browser-use', label:'Browser Use', isDefault:false },
   { id:'github', label:'GitHub', isDefault:false },
   { id:'gh-issues', label:'GitHub Issues', isDefault:false },
   { id:'coding-agent', label:'Coding Agent', isDefault:false },
-  { id:'execution-agent-planner', label:'Execution Planner', isDefault:false },
   { id:'discord', label:'Discord', isDefault:false },
   { id:'weather', label:'Weather', isDefault:false },
   { id:'summarize', label:'Summarize', isDefault:false },
