@@ -24,7 +24,7 @@ const SCRIPT_DIR = __dirname;
 const MANAGER_CONFIG = path.join(SCRIPT_DIR, 'manager-config.json');
 let PORT = 3333;
 let HOST = '0.0.0.0';
-const APP_VERSION = '0.9.4';
+const APP_VERSION = '1.0.0-rc1';
 // --port 参数
 const portIdx = process.argv.indexOf('--port');
 if (portIdx !== -1 && process.argv[portIdx + 1]) PORT = parseInt(process.argv[portIdx + 1]) || 3333;
@@ -64,7 +64,7 @@ function refreshPaths() {
 }
 
 // ── Default Skills & Tool Groups for new agents ─────────────
-const DEFAULT_SKILLS = ['memory-continuity', 'agent-workflow', 'execution-agent-dispatch', 'session-logs'];
+const DEFAULT_SKILLS = ['memory-continuity', 'session-logs'];
 const DEFAULT_TOOL_GROUPS = ['group:fs', 'group:runtime', 'group:memory', 'sessions_spawn', 'subagents'];
 
 function applySkillsTools(agentEntry, skills, toolGroups) {
@@ -3029,14 +3029,11 @@ function showAddForm(type) {
 // ── Skills / Tools picker helper ──────────────────────────
 const AVAILABLE_SKILLS = [
   { id:'memory-continuity', label:'Memory Continuity', isDefault:true },
-  { id:'agent-workflow', label:'Agent Workflow', isDefault:true },
-  { id:'execution-agent-dispatch', label:'Execution Dispatch', isDefault:true },
   { id:'session-logs', label:'Session Logs', isDefault:true },
   { id:'browser-use', label:'Browser Use', isDefault:false },
   { id:'github', label:'GitHub', isDefault:false },
   { id:'gh-issues', label:'GitHub Issues', isDefault:false },
   { id:'coding-agent', label:'Coding Agent', isDefault:false },
-  { id:'execution-agent-planner', label:'Execution Planner', isDefault:false },
   { id:'discord', label:'Discord', isDefault:false },
   { id:'weather', label:'Weather', isDefault:false },
   { id:'summarize', label:'Summarize', isDefault:false },
@@ -3360,12 +3357,20 @@ function renderAgents() {
   // Build grouping: prefer explicit parentAgentId; fallback to telegram bot-root grouping.
   const byId = {}; (S.agents||[]).forEach(a=>{ byId[a.id]=a; });
 
-  // infer parentAgentId for legacy telegram sub-agents if missing
+  // infer parentAgentId for sub-agents if missing
   const accountToRootId = {};
   (S.agents||[]).forEach(a=>{ if(a.hasOwnBot && a.accountId) accountToRootId[a.accountId]=a.id; });
   (S.agents||[]).forEach(a=>{
-    if(!a.parentAgentId && !a.hasOwnBot && a.parentAccountId && accountToRootId[a.parentAccountId]){
+    if(a.parentAgentId || a.hasOwnBot || a.id === 'main') return; // already resolved or is a root
+    // Case 1: legacy telegram sub-agent with parentAccountId
+    if(a.parentAccountId && accountToRootId[a.parentAccountId]){
       a._inferParentAgentId = accountToRootId[a.parentAccountId];
+      return;
+    }
+    // Case 2: orphan agent (no own bot, no parentAgentId, no binding-based inference)
+    // These are likely dynamically created sub-agents — default to 'main'
+    if(byId['main']){
+      a._inferParentAgentId = 'main';
     }
   });
 

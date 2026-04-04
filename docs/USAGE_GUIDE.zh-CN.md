@@ -123,7 +123,7 @@ bash start.sh
 - workspace 路径（建议独立目录）
 - 选择模型（下拉来自 `openclaw models list`，更不容易选错）
 - 填入刚拿到的 bot token
-- **Skills & Tools**（可选）：展开表单底部的折叠面板可自定义。默认预设：Skills 包含 `memory-continuity`、`agent-workflow`、`execution-agent-dispatch`、`session-logs`；Tool Groups 包含 `group:fs`、`group:runtime`、`group:memory`、`sessions_spawn`、`subagents`。提供「仅默认 / 全选 / 清空」快捷按钮。
+- **Skills & Tools**（可选）：展开表单底部的折叠面板可自定义。默认预设：Skills 包含 `memory-continuity`、`session-logs`；Tool Groups 包含 `group:fs`、`group:runtime`、`group:memory`、`sessions_spawn`、`subagents`。提供「仅默认 / 全选 / 清空」快捷按钮。
 
 保存后，OCM 会把主 Agent + skills + tools 写进 `openclaw.json`，并把 bot token 绑定到对应 `accountId`。
 
